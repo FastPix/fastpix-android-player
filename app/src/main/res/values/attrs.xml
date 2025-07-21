@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <declare-styleable name="ParamEntry">
+    <attr name="title" format="string"/>
+  </declare-styleable>
+  <declare-styleable name="TextParamEntryView">
+    <attr name="hint" format="string"/>
+  </declare-styleable>
+  <declare-styleable name="NumericParamEntryView">
+    <attr name="hint_num" format="float" />
+  </declare-styleable>
+</resources>
