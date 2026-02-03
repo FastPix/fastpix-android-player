@@ -1,24 +1,29 @@
 package io.fastpix.media3
 
 import android.content.Context
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
-import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.SeekBar
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView as Media3PlayerView
+import androidx.media3.ui.PlayerView
+import io.fastpix.media3.core.FastPixMediaItemBuilder
+import io.fastpix.media3.core.PlaybackResolution
+import io.fastpix.media3.core.RenditionOrder
+import io.fastpix.media3.core.fastPixMediaItem
 
 /**
- * A reusable custom [View] that wraps Media3 ExoPlayer and provides a clean SDK-friendly API.
+ * A reusable custom [android.view.View] that wraps Media3 ExoPlayer and provides a clean SDK-friendly API.
  *
  * This view internally creates and manages an ExoPlayer instance, handling lifecycle,
  * orientation changes, and gestures. It mirrors the usage style of
@@ -167,7 +172,7 @@ class PlayerView @JvmOverloads constructor(
          * Default interval for playback time updates in milliseconds.
          */
         private const val DEFAULT_TIME_UPDATE_INTERVAL_MS = 500L
-        
+
         /**
          * Cleanup method to release all stored players.
          * Useful for testing or cleanup scenarios.
@@ -203,7 +208,7 @@ class PlayerView @JvmOverloads constructor(
             // If disabling retention and we have a stored player, release it
             if (!value && exoPlayer != null) {
                 val viewId = id
-                if (viewId != View.NO_ID && PlayerStore.hasPlayer(viewId)) {
+                if (viewId != NO_ID && PlayerStore.hasPlayer(viewId)) {
                     // Player will be released on next detach
                 }
             }
@@ -213,7 +218,7 @@ class PlayerView @JvmOverloads constructor(
      * Internal Media3 PlayerView used for rendering.
      * This is wrapped inside our custom view.
      */
-    private val media3PlayerView: Media3PlayerView = Media3PlayerView(context, attrs).apply {
+    private val media3PlayerView: PlayerView = PlayerView(context, attrs).apply {
         // Disable default controls since we're managing our own
         useController = false
         layoutParams = LayoutParams(
@@ -265,12 +270,12 @@ class PlayerView @JvmOverloads constructor(
     private val timeUpdateRunnable = object : Runnable {
         override fun run() {
             val player = exoPlayer
-            
+
             // Pause time updates during seek operations
             if (isSeeking) {
                 return
             }
-            
+
             if (player != null && player.isPlaying && isAttachedToWindow && playbackListeners.isNotEmpty()) {
                 val currentPositionMs = player.currentPosition
                 val durationMs = if (player.duration != C.TIME_UNSET) {
@@ -279,12 +284,12 @@ class PlayerView @JvmOverloads constructor(
                     C.TIME_UNSET
                 }
                 val bufferedPositionMs = player.bufferedPosition
-                
+
                 // Dispatch time updates to all listeners
                 playbackListeners.forEach { listener ->
                     listener.onTimeUpdate(currentPositionMs, durationMs, bufferedPositionMs)
                 }
-                
+
                 // Schedule next update if still playing
                 if (player.isPlaying && isAttachedToWindow && playbackListeners.isNotEmpty() && !isSeeking) {
                     timeUpdateHandler.postDelayed(this, DEFAULT_TIME_UPDATE_INTERVAL_MS)
@@ -336,7 +341,7 @@ class PlayerView @JvmOverloads constructor(
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             val player = exoPlayer ?: return
-            
+
             // Detect buffering state transitions
             if (previousPlaybackState != Player.STATE_BUFFERING && playbackState == Player.STATE_BUFFERING) {
                 // Transitioned to buffering state
@@ -345,15 +350,15 @@ class PlayerView @JvmOverloads constructor(
                 // Transitioned from buffering to ready
                 playbackListeners.forEach { it.onBufferingEnd() }
             }
-            
+
             // Update previous state
             previousPlaybackState = playbackState
-            
+
             // Stop time updates when playback ends
             if (playbackState == Player.STATE_ENDED) {
                 stopTimeUpdates()
             }
-            
+
             // If we're seeking and player becomes ready, complete the seek
             if (isSeeking && playbackState == Player.STATE_READY) {
                 val finalPositionMs = player.currentPosition
@@ -362,13 +367,13 @@ class PlayerView @JvmOverloads constructor(
                 } else {
                     0L
                 }
-                
+
                 // Reset seeking state
                 isSeeking = false
-                
+
                 // Notify playback listeners
                 playbackListeners.forEach { it.onSeekEnd(seekStartPositionMs, finalPositionMs, durationMs) }
-                
+
                 // Resume time updates if player is playing
                 if (player.isPlaying && playbackListeners.isNotEmpty()) {
                     startTimeUpdates()
@@ -376,10 +381,10 @@ class PlayerView @JvmOverloads constructor(
             }
         }
 
-        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+        override fun onPlayerError(error: PlaybackException) {
             playbackListeners.forEach { it.onError(error) }
             stopTimeUpdates()
-            
+
             // Complete seek even on error to ensure cleanup
             if (isSeeking) {
                 val player = exoPlayer ?: return
@@ -389,10 +394,10 @@ class PlayerView @JvmOverloads constructor(
                 } else {
                     0L
                 }
-                
+
                 // Reset seeking state
                 isSeeking = false
-                
+
                 // Notify playback listeners
                 playbackListeners.forEach { it.onSeekEnd(seekStartPositionMs, finalPositionMs, durationMs) }
             }
@@ -406,7 +411,7 @@ class PlayerView @JvmOverloads constructor(
             // Handle seek operations entirely in the Player.Listener
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                 val player = exoPlayer ?: return
-                
+
                 if (isSeeking) {
                     // Complete the ongoing seek operation
                     val finalPositionMs = newPosition.positionMs
@@ -415,13 +420,13 @@ class PlayerView @JvmOverloads constructor(
                     } else {
                         0L
                     }
-                    
+
                     // Reset seeking state
                     isSeeking = false
-                    
+
                     // Notify playback listeners
                     playbackListeners.forEach { it.onSeekEnd(seekStartPositionMs, finalPositionMs, durationMs) }
-                    
+
                     // Resume time updates if player is playing
                     if (player.isPlaying && playbackListeners.isNotEmpty()) {
                         startTimeUpdates()
@@ -431,13 +436,13 @@ class PlayerView @JvmOverloads constructor(
                     // This handles both programmatic seeks and built-in seek bar interactions
                     isSeeking = true
                     seekStartPositionMs = oldPosition.positionMs
-                    
+
                     // Pause time updates during seek
                     stopTimeUpdates()
-                    
+
                     // Notify playback listeners
                     playbackListeners.forEach { it.onSeekStart(seekStartPositionMs) }
-                    
+
                     // The seek will complete when player becomes ready or on next position discontinuity
                 }
             }
@@ -463,19 +468,20 @@ class PlayerView @JvmOverloads constructor(
         addView(media3PlayerView)
 
         // Setup gesture detector for tap-to-toggle
-        gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onSingleTapUp(e: MotionEvent): Boolean {
-                // Prevent tap-to-toggle during seek operations
-                if (isSeeking) {
+        gestureDetector =
+            GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    // Prevent tap-to-toggle during seek operations
+                    if (isSeeking) {
+                        return false
+                    }
+                    if (isTapGestureEnabled) {
+                        togglePlayPause()
+                        return true
+                    }
                     return false
                 }
-                if (isTapGestureEnabled) {
-                    togglePlayPause()
-                    return true
-                }
-                return false
-            }
-        })
+            })
 
         // Enable clickable for tap gestures
         isClickable = true
@@ -496,33 +502,33 @@ class PlayerView @JvmOverloads constructor(
     private fun createPlayerIfNeeded() {
         if (exoPlayer == null) {
             val viewId = id
-            
+
             // Try to recover existing player instance after config change
-            if (retainPlayerOnConfigChange && viewId != View.NO_ID) {
+            if (retainPlayerOnConfigChange && viewId != NO_ID) {
                 val storedPlayer = PlayerStore.getPlayer(viewId)
                 if (storedPlayer != null) {
                     exoPlayer = storedPlayer
                     // Player state (position, playWhenReady, media items) is already preserved
                 }
             }
-            
+
             // Create new player if not found or retention is disabled
             if (exoPlayer == null) {
                 exoPlayer = ExoPlayer.Builder(context).build()
-                
+
                 // Store player instance if retention is enabled and view has an ID
                 // Store immediately so it's available even if view is quickly detached
-                if (retainPlayerOnConfigChange && viewId != View.NO_ID) {
+                if (retainPlayerOnConfigChange && viewId != NO_ID) {
                     PlayerStore.putPlayer(viewId, exoPlayer!!)
                 }
             }
-            
+
             // Attach listener (ensuring no duplicates)
             attachPlayerListener()
-            
+
             // Initialize previous playback state (for both new and recovered players)
             previousPlaybackState = exoPlayer!!.playbackState
-            
+
             // Attach player to view surface
             // This does NOT reset playback state - ExoPlayer preserves state when reattached
             media3PlayerView.player = exoPlayer
@@ -531,7 +537,7 @@ class PlayerView @JvmOverloads constructor(
 
     /**
      * Sets up touch event interception for built-in seek bar interactions.
-     * 
+     *
      * This method finds all SeekBar views within the Media3 PlayerView hierarchy
      * and intercepts their touch events to detect when users start dragging the seek bar.
      */
@@ -540,7 +546,7 @@ class PlayerView @JvmOverloads constructor(
         if (!media3PlayerView.useController) {
             return
         }
-        
+
         // Post to ensure view hierarchy is fully laid out
         post {
             findAndInterceptSeekBars(media3PlayerView)
@@ -549,7 +555,7 @@ class PlayerView @JvmOverloads constructor(
 
     /**
      * Recursively finds all SeekBar views in the view hierarchy.
-     * 
+     *
      * Note: Seek tracking is handled entirely by Player.Listener via onPositionDiscontinuity.
      * This method is kept for potential future use or as a placeholder for custom seek bar handling.
      */
@@ -568,7 +574,7 @@ class PlayerView @JvmOverloads constructor(
 
     /**
      * Attaches the player listener, ensuring no duplicate listeners.
-     * 
+     *
      * When recovering a player from the store (after config change), the previous
      * view instance should have already removed its listener. However, we defensively
      * remove any existing listener first to ensure clean state, then add our listener.
@@ -587,7 +593,7 @@ class PlayerView @JvmOverloads constructor(
 
     /**
      * Detaches the player listener.
-     * 
+     *
      * This is called when the view is detached to ensure the listener is removed
      * before the player is stored or released.
      */
@@ -601,7 +607,7 @@ class PlayerView @JvmOverloads constructor(
 
     /**
      * Releases the ExoPlayer instance.
-     * 
+     *
      * If [retainPlayerOnConfigChange] is true and the view has an ID, the player instance
      * is preserved in the store for recovery after configuration changes.
      * Otherwise, the player is fully released.
@@ -610,37 +616,37 @@ class PlayerView @JvmOverloads constructor(
      */
     private fun releasePlayer(forceRelease: Boolean = false) {
         val player = exoPlayer ?: return
-        
+
         val viewId = id
-        val shouldRetain = retainPlayerOnConfigChange && !forceRelease && viewId != View.NO_ID
-        
+        val shouldRetain = retainPlayerOnConfigChange && !forceRelease && viewId != NO_ID
+
         if (shouldRetain) {
             // Store player in registry before detaching (in case it wasn't stored yet)
             PlayerStore.putPlayer(viewId, player)
-            
+
             // Detach listener (will be reattached when view is recreated)
             detachPlayerListener()
-            
+
             // Detach player from view surface (player state is preserved)
             media3PlayerView.player = null
-            
+
             // Clear local reference but keep player in store
             exoPlayer = null
         } else {
             // Detach listener
             detachPlayerListener()
-            
+
             // Detach player from view surface
             media3PlayerView.player = null
-            
+
             // Truly release the player
             player.release()
-            
+
             // Remove from store if it exists
-            if (viewId != View.NO_ID) {
+            if (viewId != NO_ID) {
                 PlayerStore.removePlayer(viewId)
             }
-            
+
             exoPlayer = null
         }
     }
@@ -648,16 +654,16 @@ class PlayerView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         isAttachedToWindow = true
-        
+
         // Create or recover player instance
         createPlayerIfNeeded()
-        
+
         // When recovering a player from store, ensure it's attached to the surface
         // The player's state (position, playWhenReady) is already preserved
         exoPlayer?.let { player ->
             // Reattach player to view surface (this doesn't reset playback state)
             media3PlayerView.player = player
-            
+
             // Resume time updates if player is currently playing and listeners are registered
             if (player.isPlaying && playbackListeners.isNotEmpty()) {
                 startTimeUpdates()
@@ -667,10 +673,10 @@ class PlayerView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         isAttachedToWindow = false
-        
+
         // Stop time updates when view is detached
         stopTimeUpdates()
-        
+
         // Complete any ongoing seek operation
         if (isSeeking) {
             val player = exoPlayer
@@ -681,29 +687,29 @@ class PlayerView @JvmOverloads constructor(
                 } else {
                     0L
                 }
-                
+
                 // Reset seeking state
                 isSeeking = false
-                
+
                 // Notify playback listeners
                 playbackListeners.forEach { it.onSeekEnd(seekStartPositionMs, finalPositionMs, durationMs) }
             } else {
                 isSeeking = false
             }
         }
-        
+
         // Detach player from view but preserve instance for config changes (if retention enabled)
         releasePlayer(forceRelease = false)
-        
+
         super.onDetachedFromWindow()
     }
 
     /**
      * Manually release the player instance.
-     * 
+     *
      * Call this method when you're certain the player should be released,
      * such as in Activity.onDestroy() when the activity is finishing.
-     * 
+     *
      * This will force release the player even if [retainPlayerOnConfigChange] is true.
      */
     fun release() {
@@ -723,7 +729,7 @@ class PlayerView @JvmOverloads constructor(
     fun setMediaItem(mediaItem: MediaItem) {
         createPlayerIfNeeded()
         val player = exoPlayer ?: return
-        
+
         // Check if player already has media items and is in a valid state
         val currentMediaItemCount = player.mediaItemCount
         if (currentMediaItemCount > 0) {
@@ -734,13 +740,13 @@ class PlayerView @JvmOverloads constructor(
                 val currentUri = currentMediaItem.requestMetadata.mediaUri
                 val newMediaId = mediaItem.mediaId
                 val newUri = mediaItem.requestMetadata.mediaUri
-                
+
                 // Compare media ID and URI (handle null cases)
                 val mediaIdMatches = (currentMediaId == null && newMediaId == null) ||
                         (currentMediaId != null && currentMediaId == newMediaId)
                 val uriMatches = (currentUri == null && newUri == null) ||
                         (currentUri != null && currentUri == newUri)
-                
+
                 if (mediaIdMatches && uriMatches) {
                     // Same media item already set - don't reset playback state
                     // Just ensure player is attached to surface (in case it was recovered)
@@ -751,10 +757,147 @@ class PlayerView @JvmOverloads constructor(
                 }
             }
         }
-        
+
         // New or different media item - set it and prepare
         player.setMediaItem(mediaItem)
         player.prepare()
+    }
+
+    /**
+     * Sets a FastPix media item with a builder pattern.
+     *
+     * This method creates a MediaItem from a FastPix playback ID with optional
+     * configuration parameters and sets it to the player.
+     *
+     * Example usage:
+     * ```
+     * playerView.setFastPixMediaItem {
+     *     playbackId = "your-playback-id"
+     *     maxResolution = PlaybackResolution.FHD_1080
+     *     playbackToken = "your-token"
+     * }
+     * ```
+     *
+     * @param block The builder lambda to configure the media item.
+     * @return true if the media item was successfully set, false if there was an error.
+     */
+    @OptIn(UnstableApi::class)
+    fun setFastPixMediaItem(block: FastPixMediaItemBuilder.() -> Unit): Boolean {
+        createPlayerIfNeeded()
+        val player = exoPlayer ?: return false
+
+        // Build the configuration
+        val config = fastPixMediaItem(block)
+
+        // Validate playback ID
+        if (config.playbackId.isBlank()) {
+            notifyPlayerError(
+                PlaybackException(
+                    "Playback ID is empty",
+                    IllegalArgumentException(),
+                    9002
+                )
+            )
+            return false
+        }
+
+        // Validate stream type
+        val streamType = config.streamType ?: "on-demand"
+        if (streamType !in listOf("on-demand", "live-stream")) {
+            notifyPlayerError(
+                PlaybackException(
+                    "Invalid stream type. Must be 'on-demand' or 'live-stream'",
+                    IllegalArgumentException(),
+                    9001
+                )
+            )
+            return false
+        }
+
+        // Create playback URL
+        val playbackUrl = createFastPixPlaybackUrl(
+            playbackId = config.playbackId,
+            customDomain = config.customDomain ?: "stream.fastpix.io",
+            maxResolution = config.maxResolution,
+            minResolution = config.minResolution,
+            resolution = config.resolution,
+            renditionOrder = config.renditionOrder,
+            playbackToken = config.playbackToken
+        )
+
+        // Create and set the media item
+        val mediaItem = MediaItem.Builder().setUri(playbackUrl).build()
+        setMediaItem(mediaItem)
+        return true
+    }
+
+    /**
+     * Creates a FastPix playback URL with the given parameters.
+     */
+    @OptIn(UnstableApi::class)
+    private fun createFastPixPlaybackUrl(
+        playbackId: String,
+        customDomain: String,
+        maxResolution: PlaybackResolution?,
+        minResolution: PlaybackResolution?,
+        resolution: PlaybackResolution?,
+        renditionOrder: RenditionOrder?,
+        playbackToken: String?
+    ): String {
+        val uriBuilder = Uri.Builder()
+            .scheme("https")
+            .authority(customDomain)
+            .appendPath("$playbackId.m3u8")
+
+        minResolution?.let {
+            uriBuilder.appendQueryParameter("minResolution", getResolutionValue(it))
+        }
+        maxResolution?.let {
+            uriBuilder.appendQueryParameter("maxResolution", getResolutionValue(it))
+        }
+        resolution?.let {
+            uriBuilder.appendQueryParameter("resolution", getResolutionValue(it))
+        }
+        renditionOrder?.takeIf { it != RenditionOrder.Default }?.let {
+            uriBuilder.appendQueryParameter("renditionOrder", getRenditionValue(it))
+        }
+        playbackToken?.let {
+            uriBuilder.appendQueryParameter("token", it)
+        }
+
+        return uriBuilder.build().toString()
+    }
+
+    /**
+     * Converts a PlaybackResolution enum to its string value.
+     */
+    private fun getResolutionValue(resolution: PlaybackResolution): String {
+        return when (resolution) {
+            PlaybackResolution.LD_480 -> "480p"
+            PlaybackResolution.LD_540 -> "540p"
+            PlaybackResolution.HD_720 -> "720p"
+            PlaybackResolution.FHD_1080 -> "1080p"
+            PlaybackResolution.QHD_1440 -> "1440p"
+            PlaybackResolution.FOUR_K_2160 -> "2160p"
+        }
+    }
+
+    /**
+     * Converts a RenditionOrder enum to its string value.
+     */
+    private fun getRenditionValue(renditionOrder: RenditionOrder): String {
+        return when (renditionOrder) {
+            RenditionOrder.Descending -> "desc"
+            RenditionOrder.Ascending -> "asc"
+            RenditionOrder.Default -> ""
+        }
+    }
+
+    /**
+     * Notifies the player listener of an error.
+     */
+    private fun notifyPlayerError(exception: PlaybackException) {
+        playerListener.onPlayerError(exception)
     }
 
     /**
@@ -775,7 +918,7 @@ class PlayerView @JvmOverloads constructor(
     ) {
         createPlayerIfNeeded()
         val player = exoPlayer ?: return
-        
+
         // Check if player already has the same media items
         val currentMediaItemCount = player.mediaItemCount
         if (currentMediaItemCount == mediaItems.size && currentMediaItemCount > 0) {
@@ -790,7 +933,7 @@ class PlayerView @JvmOverloads constructor(
                     break
                 }
             }
-            
+
             if (allMatch) {
                 // Same media items already set - don't reset playback state
                 // Just ensure player is attached to surface (in case it was recovered)
@@ -800,7 +943,7 @@ class PlayerView @JvmOverloads constructor(
                 return
             }
         }
-        
+
         // New or different media items - set them and prepare
         player.setMediaItems(mediaItems, startIndex, startPositionMs)
         player.prepare()
@@ -896,7 +1039,7 @@ class PlayerView @JvmOverloads constructor(
      * Seeks to a specific position in the current media item.
      *
      * Seek tracking and callbacks are handled automatically by the Player.Listener.
-     * 
+     *
      * @param positionMs The position in milliseconds.
      */
     fun seekTo(positionMs: Long) {
