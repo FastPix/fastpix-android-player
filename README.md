@@ -7,6 +7,7 @@ A clean, modern Android video player SDK built on top of [AndroidX Media3 (ExoPl
 ## Features
 
 - **Built on Media3 (ExoPlayer)** – Uses Google's powerful and reliable video playback engine
+- **FastPix URL Generator** – Built-in builder pattern for creating FastPix media items with resolution, token, and streaming options
 - **Configuration Change Survival** – Playback state is preserved across orientation changes and configuration updates (default behavior)
 - **Event-Driven Architecture** – Comprehensive playback event listeners for time updates, seek operations, buffering, and errors
 - **Fullscreen Mode** – Built-in fullscreen support with proper view reparenting and system UI handling
@@ -34,7 +35,7 @@ Add the following to your `build.gradle.kts` (or `build.gradle`):
 
 ```kotlin
 dependencies {
-    implementation("io.fastpix.player:android-player-sdk:1.0.1")
+    implementation("io.fastpix.player:android-player-sdk:1.0.2")
 }
 ```
 
@@ -42,7 +43,7 @@ Or if using version catalogs, add to `libs.versions.toml`:
 
 ```toml
 [versions]
-fastpix-player = "1.0.1"
+fastpix-player = "1.0.2"
 
 [libraries]
 fastpix-player = { module = "io.fastpix.player:android-player-sdk", version.ref = "fastpix-player" }
@@ -69,6 +70,69 @@ Sync your project to download the dependency.
 
 ### 2. Use PlayerView in your Activity/Fragment
 
+#### Option A: Using FastPix Builder (Recommended for FastPix streams)
+
+```kotlin
+import io.fastpix.media3.PlayerView
+import io.fastpix.media3.PlaybackListener
+import io.fastpix.media3.core.PlaybackResolution
+
+class MainActivity : AppCompatActivity() {
+    private lateinit var binding: ActivityMainBinding
+    
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        
+        setupPlayer()
+    }
+    
+    private fun setupPlayer() {
+        // Set FastPix media item using builder pattern
+        binding.playerView.setFastPixMediaItem {
+            playbackId = "your-playback-id"
+            maxResolution = PlaybackResolution.FHD_1080
+        }
+        
+        // Add playback listener
+        binding.playerView.addPlaybackListener(object : PlaybackListener {
+            override fun onPlay() {
+                // Playback started
+            }
+            
+            override fun onPause() {
+                // Playback paused
+            }
+            
+            override fun onTimeUpdate(
+                currentPositionMs: Long,
+                durationMs: Long,
+                bufferedPositionMs: Long
+            ) {
+                // Update UI with current time, duration, and buffered position
+            }
+            
+            override fun onError(error: PlaybackException) {
+                // Handle playback error
+            }
+        })
+        
+        // Start playback
+        binding.playerView.play()
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        if (isFinishing) {
+            binding.playerView.release()
+        }
+    }
+}
+```
+
+#### Option B: Using Direct URL
+
 ```kotlin
 import io.fastpix.media3.PlayerView
 import io.fastpix.media3.PlaybackListener
@@ -86,7 +150,7 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun setupPlayer() {
-        // Set media item
+        // Set media item with direct URL
         val mediaItem = MediaItem.fromUri("https://example.com/video.mp4")
         binding.playerView.setMediaItem(mediaItem)
         
@@ -137,8 +201,15 @@ The main view component that wraps ExoPlayer and provides a clean API.
 #### Media Management
 
 ```kotlin
-// Set a single media item
+// Set a single media item with direct URL
 playerView.setMediaItem(MediaItem.fromUri("https://example.com/video.mp4"))
+
+// Set a FastPix media item using builder pattern (recommended for FastPix streams)
+playerView.setFastPixMediaItem {
+    playbackId = "your-playback-id"
+    maxResolution = PlaybackResolution.FHD_1080
+    playbackToken = "your-token" // Optional, for secure playback
+}
 ```
 
 #### Playback Control
@@ -192,6 +263,127 @@ playerView.clearPlaybackListeners()
 // Get underlying ExoPlayer instance for advanced usage
 val exoPlayer = playerView.getPlayer()
 ```
+
+---
+
+## FastPix Media Items
+
+The SDK provides a builder pattern for creating FastPix media items with advanced configuration options. This is the recommended way to play FastPix streams.
+
+### Basic Usage
+
+```kotlin
+import io.fastpix.media3.core.PlaybackResolution
+
+// Simple usage with just playback ID
+playerView.setFastPixMediaItem {
+    playbackId = "your-playback-id"
+}
+```
+
+### Advanced Configuration
+
+```kotlin
+playerView.setFastPixMediaItem {
+    playbackId = "your-playback-id"
+    
+    // Resolution options
+    maxResolution = PlaybackResolution.FHD_1080  // Maximum resolution
+    minResolution = PlaybackResolution.HD_720     // Minimum resolution
+    resolution = PlaybackResolution.FHD_1080     // Fixed resolution
+    
+    // Adaptive streaming
+    renditionOrder = RenditionOrder.Descending   // Quality preference order
+    
+    // Custom domain (defaults to "stream.fastpix.io")
+    customDomain = "custom.stream.fastpix.io"
+    
+    // Stream type
+    streamType = "on-demand"  // or "live-stream"
+    
+    // Secure playback
+    playbackToken = "your-playback-token"
+}
+```
+
+### Playback Resolution Options
+
+```kotlin
+enum class PlaybackResolution {
+    LD_480,      // 480p
+    LD_540,      // 540p
+    HD_720,      // 720p
+    FHD_1080,    // 1080p
+    QHD_1440,    // 1440p
+    FOUR_K_2160  // 2160p (4K)
+}
+```
+
+### Rendition Order
+
+Controls the order of preference for adaptive streaming:
+
+```kotlin
+enum class RenditionOrder {
+    Descending,  // Prefer higher quality first
+    Ascending,   // Prefer lower quality first
+    Default      // Use default order
+}
+```
+
+### Complete Example
+
+```kotlin
+class VideoPlayerActivity : AppCompatActivity() {
+    private lateinit var binding: ActivityVideoPlayerBinding
+    
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivityVideoPlayerBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        
+        setupPlayer()
+    }
+    
+    private fun setupPlayer() {
+        // Configure FastPix media item with builder
+        val success = binding.playerView.setFastPixMediaItem {
+            playbackId = "your-playback-id"
+            maxResolution = PlaybackResolution.FHD_1080
+            playbackToken = "your-token" // Optional
+        }
+        
+        if (!success) {
+            // Handle error (e.g., invalid playback ID)
+            Toast.makeText(this, "Failed to load video", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        // Add playback listener
+        binding.playerView.addPlaybackListener(object : PlaybackListener {
+            override fun onPlay() {
+                // Playback started
+            }
+            
+            override fun onError(error: PlaybackException) {
+                // Handle playback error
+            }
+        })
+        
+        // Start playback
+        binding.playerView.setPlayWhenReady(true)
+    }
+}
+```
+
+### Error Handling
+
+The `setFastPixMediaItem` method returns `true` if the media item was successfully set, or `false` if there was an error. Errors are automatically reported through the `PlaybackListener.onError()` callback.
+
+Common errors:
+- Empty playback ID
+- Invalid stream type (must be "on-demand" or "live-stream")
+- Invalid playback token (if provided)
 
 ---
 

@@ -158,19 +158,36 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Setup PlayerView with media source and listeners.
-     * This demonstrates the core PlayerView API.
+     * This demonstrates the core PlayerView API and FastPix media item integration.
      */
     private fun setupPlayerView() {
         binding.loader.isVisible = false
         binding.playerView.addPlaybackListener(playbackListener)
         binding.playerView.retainPlayerOnConfigChange = true
         binding.playerView.isTapGestureEnabled = false
-        val mediaItem = MediaItem.fromUri(
-            videoModel?.url.orEmpty()
-        )
-        binding.playerView.setMediaItem(mediaItem)
-        binding.playerView.setPlayWhenReady(true)
 
+        // Use builder pattern to create and set FastPix MediaItem from playback ID
+        var playbackUrl = videoModel?.url
+        if (playbackUrl.isNullOrEmpty()) {
+            // Use the builder pattern to configure FastPix media item
+            val success = binding.playerView.setFastPixMediaItem {
+                playbackId = "playbackId"
+                // Optional: You can configure resolution, token, etc. here
+                // maxResolution = PlaybackResolution.FHD_1080
+                // playbackToken = "your-token-here"
+            }
+            if (!success) {
+                // Fallback to direct URL if FastPix media item creation fails
+                val mediaItem = MediaItem.fromUri(videoModel?.url.orEmpty())
+                binding.playerView.setMediaItem(mediaItem)
+            }
+        } else {
+            // Fallback to direct URL if no playback ID is available
+            val mediaItem = MediaItem.fromUri(videoModel?.url.orEmpty())
+            binding.playerView.setMediaItem(mediaItem)
+        }
+
+        binding.playerView.setPlayWhenReady(true)
     }
 
     private fun togglePlayPause() {

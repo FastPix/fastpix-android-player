@@ -27,7 +27,6 @@ class VideoListScreen : AppCompatActivity() {
 
         videoAdapter.onVideoClick = { video ->
             val intent = Intent(this, MainActivity::class.java)
-            intent.putExtra("video_model", video)
             startActivity(intent)
         }
     }
