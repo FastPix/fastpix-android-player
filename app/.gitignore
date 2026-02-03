@@ -1,0 +1,116 @@
+# ===============================
+# OS / Editor junk
+# ===============================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+
+# ===============================
+# Android Studio / IntelliJ
+# ===============================
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# ===============================
+# Gradle
+# ===============================
+.gradle/
+build/
+**/build/
+
+# Local Gradle config
+local.properties
+
+# ===============================
+# Android Generated
+# ===============================
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+*.class
+
+# ===============================
+# Logs
+# ===============================
+*.log
+
+# ===============================
+# Keystore files (VERY IMPORTANT)
+# ===============================
+*.jks
+*.keystore
+*.p12
+
+# ===============================
+# CMake / NDK
+# ===============================
+.cxx/
+externalNativeBuild/
+obj/
+
+# ===============================
+# Kotlin / Java
+# ===============================
+kotlin/
+*.hprof
+
+# ===============================
+# Lint / Reports
+# ===============================
+lint/
+lint-results*.xml
+lint-results*.html
+
+# ===============================
+# Android Profiling
+# ===============================
+*.trace
+
+# ===============================
+# Firebase / Google Services
+# ===============================
+google-services.json
+firebase.json
+
+# ===============================
+# Fastlane
+# ===============================
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+fastlane/readme.md
+
+# ===============================
+# Coverage
+# ===============================
+coverage/
+jacoco/
+
+# ===============================
+# Secrets / Env
+# ===============================
+.env
+.env.*
+secrets.properties
+
+# ===============================
+# VS Code
+# ===============================
+.vscode/
+
+# ===============================
+# Temporary files
+# ===============================
+*.tmp
+*.swp
+*~
