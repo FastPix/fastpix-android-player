@@ -2,10 +2,9 @@ package io.fastpix.media3
 
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
 
 /**
- * Listener interface for playback events from [PlayerView].
+ * Listener interface for playback events from [io.fastpix.media3.core.FastPixPlayer].
  *
  * This interface provides callbacks for key playback events, allowing developers to
  * react to playback state changes, errors, user interactions, and continuous time updates.
@@ -19,7 +18,7 @@ import androidx.media3.common.Player
  * (default: 500ms) while playback is active.
  *
  * - Callbacks start automatically when playback begins
- * - Callbacks stop automatically when playback is paused, ended, or view is detached
+ * - Callbacks stop automatically when playback is paused, ended, or player is released
  * - Callbacks resume automatically when playback resumes
  *
  * ## Seek Interaction Callbacks
@@ -29,7 +28,6 @@ import androidx.media3.common.Player
  *
  * During seek operations:
  * - Automatic time updates are paused
- * - Tap-to-toggle play/pause is disabled
  * - Normal operation resumes after [onSeekEnd] is called
  *
  * Both methods have default empty implementations, so they're optional to override.
@@ -44,8 +42,9 @@ import androidx.media3.common.Player
  *
  * Both methods have default empty implementations, so they're optional to override.
  *
- * @see PlayerView.addPlaybackListener
- * @see PlayerView.removePlaybackListener
+ * @see io.fastpix.media3.core.FastPixPlayer.addPlaybackListener
+ * @see io.fastpix.media3.core.FastPixPlayer.removePlaybackListener
+ * @see PlayerView
  */
 interface PlaybackListener {
     /**
@@ -171,6 +170,45 @@ interface PlaybackListener {
      * Only override if you need to receive buffering end events.
      */
     fun onBufferingEnd() {
+        // Default empty implementation - optional to override
+    }
+
+    /**
+     * Called when the device volume changes (via hardware buttons or system controls).
+     *
+     * This callback is triggered when:
+     * - User presses volume up/down buttons
+     * - System volume is changed programmatically
+     * - Volume reaches zero (muted) or becomes non-zero (unmuted)
+     *
+     * This method has a default empty implementation, so it's optional to override.
+     * Only override if you need to receive device volume change events.
+     *
+     * @param volumeLevel The current device volume level (0.0f to 1.0f).
+     * @param isMuted true if the device volume is zero (muted), false otherwise.
+     */
+    fun onVolumeChanged(volumeLevel: Float) {
+        // Default empty implementation - optional to override
+    }
+
+    fun onMuteStateChanged(isMuted: Boolean) {}
+
+    fun onPlaybackRateChanged(rate: Float) {}
+
+    /**
+     * Called when video playback completes (reaches the end).
+     *
+     * This callback is triggered when:
+     * - The video reaches the end of playback
+     * - Playback state transitions to [Player.STATE_ENDED]
+     *
+     * Note: If looping is enabled, this callback will still be called when the video
+     * reaches the end, before it restarts (if applicable).
+     *
+     * This method has a default empty implementation, so it's optional to override.
+     * Only override if you need to receive completion events.
+     */
+    fun onCompleted() {
         // Default empty implementation - optional to override
     }
 }
