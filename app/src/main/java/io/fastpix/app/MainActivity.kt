@@ -8,9 +8,11 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.MenuItem
 import android.view.View
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.widget.PopupMenu
 import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -21,7 +23,9 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import io.fastpix.app.databinding.ActivityMainBinding
+import io.fastpix.media3.core.FastPixPlayer
 import io.fastpix.media3.PlaybackListener
+import io.fastpix.media3.core.StreamType
 
 /**
  * Example usage of io.fastpix.media3.PlayerView.
@@ -42,6 +46,7 @@ class MainActivity : AppCompatActivity() {
     private val TAG = "MainActivity"
     private lateinit var binding: ActivityMainBinding
     private var videoModel: DummyData? = null
+    private lateinit var fastPixPlayer: FastPixPlayer
 
     /**
      * PlaybackListener implementation to receive playback events.
@@ -76,10 +81,15 @@ class MainActivity : AppCompatActivity() {
             super.onTimeUpdate(currentPositionMs, durationMs, bufferedPositionMs)
             binding.sbProgress.max = durationMs.toInt()
             binding.tvStartTime.text = Utils.formatDurationSmart(currentPositionMs)
-            binding.tvEndTime.text = Utils.formatDurationSmart(binding.playerView.getDuration())
+            binding.tvEndTime.text = Utils.formatDurationSmart(fastPixPlayer.getDuration())
             binding.sbProgress.progress = currentPositionMs.toInt()
             binding.sbProgress.secondaryProgress = bufferedPositionMs.toInt()
 
+        }
+
+        override fun onCompleted() {
+            super.onCompleted()
+            Log.e(TAG, "onCompleted: ")
         }
 
         override fun onPlaybackStateChanged(isPlaying: Boolean) {
@@ -140,7 +150,28 @@ class MainActivity : AppCompatActivity() {
                 "Seek completed: ${fromSeconds}s -> ${toSeconds}s (duration: ${durationSeconds}s)"
             )
         }
+
+        override fun onMuteStateChanged(isMuted: Boolean) {
+            super.onMuteStateChanged(isMuted)
+            // Update mute state to match device volume
+            isMute = isMuted
+            updateVolumeIcon(isMute)
+        }
+
+        override fun onVolumeChanged(volumeLevel: Float) {
+            super.onVolumeChanged(volumeLevel)
+            Log.d(TAG, "onVolumeChanged: $volumeLevel")
+            // Update volume slider to reflect device volume changes
+            binding.sbVolumeSlider.progress = (volumeLevel * 100).toInt()
+            // Update volume icon based on mute state
+            updateVolumeIcon(isMute)
+            Log.d(TAG, "Device volume changed: level=$volumeLevel, isMuted=$isMute")
+        }
     }
+
+    private var isMute = false
+    private var isAutoPlayEnabled = false
+    private var isLoopEnabled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -151,7 +182,9 @@ class MainActivity : AppCompatActivity() {
         )
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        videoModel = intent.getParcelableExtra("video_model", DummyData::class.java)
+        videoModel = intent.getParcelableExtra(VideoListScreen.VIDEO_MODEL, DummyData::class.java)
+        isAutoPlayEnabled = intent.getBooleanExtra(VideoListScreen.AUTO_PLAY, false)
+        isLoopEnabled = intent.getBooleanExtra(VideoListScreen.LOOP, false)
         setupPlayerView()
         setupControls()
     }
@@ -159,19 +192,44 @@ class MainActivity : AppCompatActivity() {
     /**
      * Setup PlayerView with media source and listeners.
      * This demonstrates the core PlayerView API and FastPix media item integration.
+     *
+     * Following Media3 pattern: Create player with configuration, then pass to PlayerView.
      */
     private fun setupPlayerView() {
         binding.loader.isVisible = false
-        binding.playerView.addPlaybackListener(playbackListener)
         binding.playerView.retainPlayerOnConfigChange = true
         binding.playerView.isTapGestureEnabled = false
+
+        // Create FastPixPlayer with desired configuration using builder pattern (Media3 pattern)
+        // All playback-related configurations are set during player creation
+        fastPixPlayer = FastPixPlayer.Builder(this)
+            .setLoop(isLoopEnabled)
+            .setAutoplay(isAutoPlayEnabled)
+            .build()
+
+        // Add playback listener
+        fastPixPlayer.addPlaybackListener(playbackListener)
+
+        // Pass the configured player instance to PlayerView (Media3 pattern)
+        binding.playerView.player = fastPixPlayer
+
+        // Set media item after player is ready
+        setupMediaItem()
+    }
+
+    /**
+     * Sets up the media item for playback.
+     * Called after the player is initialized.
+     */
+    private fun setupMediaItem() {
 
         // Use builder pattern to create and set FastPix MediaItem from playback ID
         var playbackUrl = videoModel?.url
         if (playbackUrl.isNullOrEmpty()) {
             // Use the builder pattern to configure FastPix media item
-            val success = binding.playerView.setFastPixMediaItem {
-                playbackId = "playbackId"
+            val success = fastPixPlayer.setFastPixMediaItem {
+                playbackId = "66ee6d27-e1c0-4d15-99b2-153e26389c90"
+                streamType = StreamType.onDemand
                 // Optional: You can configure resolution, token, etc. here
                 // maxResolution = PlaybackResolution.FHD_1080
                 // playbackToken = "your-token-here"
@@ -187,12 +245,12 @@ class MainActivity : AppCompatActivity() {
             binding.playerView.setMediaItem(mediaItem)
         }
 
-        binding.playerView.setPlayWhenReady(true)
+        // Autoplay is already configured during player creation, no need to set it again
     }
 
     private fun togglePlayPause() {
-        if (binding.playerView.isPlaying()) {
-            binding.playerView.pause()
+        if (fastPixPlayer.isPlaying()) {
+            fastPixPlayer.pause()
             binding.ivPlayPause.setImageDrawable(
                 ResourcesCompat.getDrawable(
                     resources,
@@ -201,7 +259,7 @@ class MainActivity : AppCompatActivity() {
                 )
             )
         } else {
-            binding.playerView.play()
+            fastPixPlayer.play()
             binding.ivPlayPause.setImageDrawable(
                 ResourcesCompat.getDrawable(
                     resources,
@@ -217,10 +275,16 @@ class MainActivity : AppCompatActivity() {
      * Demonstrates the public playback control APIs.
      */
     private fun setupControls() {
+        // Set max to 100 for granular volume control (0-100 maps to 0.0-1.0)
+        binding.sbVolumeSlider.max = 100
+
+        // Initialize volume slider with current player volume
+        val currentVolume = fastPixPlayer.getVolume()
+        binding.sbVolumeSlider.progress = (currentVolume * 100).toInt()
+
         binding.ivPlayPause.setOnClickListener {
             togglePlayPause()
         }
-
 
         binding.ivBackwardSeek.setOnClickListener {
             handleBackwardSeek()
@@ -228,6 +292,56 @@ class MainActivity : AppCompatActivity() {
 
         binding.ivForwardSeek.setOnClickListener {
             handleForwardSeek()
+        }
+
+        binding.sbVolumeSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(
+                seekBar: SeekBar?,
+                progress: Int,
+                fromUser: Boolean
+            ) {
+                if (fromUser) {
+                    // Convert progress (0-100) to volume (0.0-1.0)
+                    val volume = progress / 100f
+                    Log.d(TAG, "Volume slider changed: progress=$progress, volume=$volume")
+                    fastPixPlayer.setVolume(volume)
+
+                    // Update mute state based on volume
+                    val wasMuted = isMute
+                    isMute = volume == 0f
+
+                    // Update icon if mute state changed
+                    if (wasMuted != isMute) {
+                        updateVolumeIcon(isMute)
+                    }
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                Log.d(TAG, "Volume slider tracking started")
+            }
+
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                Log.d(TAG, "Volume slider tracking stopped")
+            }
+
+        })
+
+        binding.ivVolume.setOnClickListener {
+            if (isMute) {
+                isMute = false
+                fastPixPlayer.unmute()
+                // Update volume slider to reflect unmuted volume
+                val currentVolume = fastPixPlayer.getVolume()
+                binding.sbVolumeSlider.progress = (currentVolume * 100).toInt()
+                updateVolumeIcon(false)
+            } else {
+                isMute = true
+                fastPixPlayer.mute()
+                // Update volume slider to 0 when muted
+                binding.sbVolumeSlider.progress = 0
+                updateVolumeIcon(true)
+            }
         }
 
         binding.ivFullScreen.setOnClickListener {
@@ -238,11 +352,15 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        binding.ivMore.setOnClickListener {
+            showPlaybackSpeedMenu(it)
+        }
+
         binding.sbProgress.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 // Don't seek during dragging, only update UI
                 if (fromUser) {
-                    val duration = binding.playerView.getDuration()
+                    val duration = fastPixPlayer.getDuration()
                     if (duration != C.TIME_UNSET) {
                         binding.tvStartTime.text = Utils.formatDurationSmart(progress.toLong())
                     }
@@ -256,11 +374,11 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 // Seek only when user releases the seekbar
                 val progress = seekBar?.progress ?: 0
-                val duration = binding.playerView.getDuration()
+                val duration = fastPixPlayer.getDuration()
                 if (duration != C.TIME_UNSET && progress >= 0) {
                     val position = progress.toLong().coerceIn(0, duration)
                     Log.d(TAG, "Seeking to position: ${position / 1000}s")
-                    binding.playerView.seekTo(position)
+                    fastPixPlayer.seekTo(position)
                 }
             }
         })
@@ -289,7 +407,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("InlinedApi")
     private fun hideSystemUI() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.let { controller ->
+            window.insetsController?.also { controller ->
                 controller.hide(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE)
             }
         } else {
@@ -350,8 +468,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleForwardSeek() {
-        val currentPosition = binding.playerView.getCurrentPosition()
-        val duration = binding.playerView.getDuration()
+        val currentPosition = fastPixPlayer.getCurrentPosition()
+        val duration = fastPixPlayer.getDuration()
 
         // Seek forward 30 seconds, but don't exceed duration
         val targetPosition = if (duration > 0) {
@@ -361,15 +479,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         Log.d(TAG, "Seeking from ${currentPosition / 1000}s to ${targetPosition / 1000}s")
-        binding.playerView.seekTo(targetPosition)
-        binding.sbProgress.progress = binding.playerView.getCurrentPosition().toInt()
-        binding.tvStartTime.text = Utils.formatDurationSmart(binding.playerView.getCurrentPosition())
+        fastPixPlayer.seekTo(targetPosition)
+        binding.sbProgress.progress = fastPixPlayer.getCurrentPosition().toInt()
+        binding.tvStartTime.text =
+            Utils.formatDurationSmart(fastPixPlayer.getCurrentPosition())
     }
 
     private fun handleBackwardSeek() {
 
-        val currentPosition = binding.playerView.getCurrentPosition()
-        val duration = binding.playerView.getDuration()
+        val currentPosition = fastPixPlayer.getCurrentPosition()
+        val duration = fastPixPlayer.getDuration()
 
         // Seek forward 30 seconds, but don't exceed duration
         val targetPosition = if (duration > 0) {
@@ -379,25 +498,96 @@ class MainActivity : AppCompatActivity() {
         }
 
         Log.d(TAG, "Seeking from ${currentPosition / 1000}s to ${targetPosition / 1000}s")
-        binding.playerView.seekTo(targetPosition)
-        binding.sbProgress.progress = binding.playerView.getCurrentPosition().toInt()
-        binding.tvStartTime.text = Utils.formatDurationSmart(binding.playerView.getCurrentPosition())
+        fastPixPlayer.seekTo(targetPosition)
+        binding.sbProgress.progress = fastPixPlayer.getCurrentPosition().toInt()
+        binding.tvStartTime.text =
+            Utils.formatDurationSmart(fastPixPlayer.getCurrentPosition())
     }
 
+    /**
+     * Updates the volume icon based on mute state.
+     *
+     * @param isMuted true to show muted icon, false to show unmuted icon.
+     */
+    private fun updateVolumeIcon(isMuted: Boolean) {
+        val iconRes = if (isMuted) {
+            R.drawable.ic_volume_off
+        } else {
+            fastPixPlayer.unmute()
+            R.drawable.ic_volume_on
+        }
+        binding.ivVolume.setImageResource(iconRes)
+    }
+
+    /**
+     * Shows a popup menu with available playback speeds.
+     *
+     * @param anchorView The view to anchor the popup menu to.
+     */
+    private fun showPlaybackSpeedMenu(anchorView: View) {
+        val popupMenu = PopupMenu(this, anchorView)
+        val availableSpeeds = fastPixPlayer.getAvailablePlaybackSpeeds()
+        val currentSpeed = fastPixPlayer.getPlaybackSpeed()
+
+        // Add menu items for each playback speed
+        availableSpeeds.forEachIndexed { index, speed ->
+            val speedLabel = formatPlaybackSpeedLabel(speed)
+            val menuItem = popupMenu.menu.add(0, index, 0, speedLabel)
+
+            // Mark current speed with a checkmark
+            if (kotlin.math.abs(speed - currentSpeed) < 0.01f) {
+                menuItem.isChecked = true
+            }
+        }
+
+        // Set menu to support checkable items
+        popupMenu.menu.setGroupCheckable(0, true, true)
+
+        // Handle menu item selection
+        popupMenu.setOnMenuItemClickListener { item: MenuItem ->
+            val selectedIndex = item.itemId
+            if (selectedIndex in availableSpeeds.indices) {
+                val selectedSpeed = availableSpeeds[selectedIndex]
+                fastPixPlayer.setPlaybackSpeed(selectedSpeed)
+            }
+            true
+        }
+
+        popupMenu.show()
+    }
+
+    /**
+     * Formats a playback speed value into a user-friendly label.
+     *
+     * @param speed The playback speed value (e.g., 1.0f, 1.5f, 2.0f).
+     * @return A formatted string like "1.0x", "1.5x", "2.0x".
+     */
+    private fun formatPlaybackSpeedLabel(speed: Float): String {
+        // Format to show one decimal place if needed, or integer if whole number
+        return if (speed == speed.toInt().toFloat()) {
+            "${speed.toInt()}x"
+        } else {
+            String.format("%.2fx", speed).trimEnd('0').trimEnd('.')
+        }
+    }
 
     override fun onResume() {
         super.onResume()
-        binding.playerView.play()
+        // Only auto-resume playback if autoplay is enabled
+        // If autoplay is false, respect the user's manual control
+        if (fastPixPlayer.autoplay) {
+            fastPixPlayer.play()
+        }
     }
 
     override fun onPause() {
         super.onPause()
-        binding.playerView.pause()
+        fastPixPlayer.pause()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        binding.playerView.removePlaybackListener(playbackListener)
+        fastPixPlayer.removePlaybackListener(playbackListener)
         if (isFinishing) {
             binding.playerView.release()
         }

@@ -3,10 +3,47 @@
 All notable changes to this project will be documented in this file.
 
 
+## [1.0.3] - 2026
+### Added
+
+- **Volume Control**: Comprehensive volume management API
+  - Added `setVolume(volume: Float)` method to set volume level (0.0f to 1.0f)
+  - Added `getVolume()` method to get current volume level
+  - Added `mute()` method to mute playback (saves current volume for restoration)
+  - Added `unmute()` method to restore previous volume level
+  - Added `onVolumeChanged(volumeLevel: Float)` callback in `PlaybackListener` - triggered when device volume changes via hardware buttons or system controls
+  - Added `onMuteStateChanged(isMuted: Boolean)` callback in `PlaybackListener` - triggered when mute state changes
+  - Automatic device volume monitoring with periodic checks (200ms interval)
+  - Volume state is preserved across configuration changes
+
+- **AutoPlay Support**: Automatic playback start when media is ready
+  - Added `setAutoplay(autoplay: Boolean)` method in `FastPixPlayer.Builder` to configure autoplay during player creation
+  - Added `autoplay` property on `FastPixPlayer` to enable/disable autoplay at runtime
+  - When enabled, playback automatically starts when media is ready to play
+  - No manual call to `play()` required when autoplay is enabled
+  - Autoplay state is preserved across configuration changes
+
+- **Loop Playback**: Seamless looping functionality
+  - Added `setLoop(loop: Boolean)` method in `FastPixPlayer.Builder` to configure loop during player creation
+  - Added `loop` property on `FastPixPlayer` to enable/disable looping at runtime
+  - When enabled, playback automatically restarts from the beginning when it reaches the end
+  - Current media item repeats indefinitely until loop is disabled
+  - Loop state is preserved across configuration changes
+
+- **Playback Rate Control**: Flexible playback speed adjustment
+  - Added `setPlaybackSpeed(speed: Float)` method to set playback speed to a specific value
+  - Added `getPlaybackSpeed()` method to get current playback speed
+  - Added `getAvailablePlaybackSpeeds()` method to get all available speed options
+  - Available playback speeds: 0.25x, 0.5x, 0.75x, 1.0x, 1.25x, 1.5x, 1.75x, 2.0x
+  - Added `onPlaybackRateChanged(rate: Float)` callback in `PlaybackListener` - triggered when playback speed changes
+  - Playback speed automatically adjusts to closest available speed if exact value is not available
+  - Playback speed state is preserved across configuration changes
+
+
 ## [1.0.2] - 2026
 ### Improved
- - Code Optimization
- - Refactoring
+- Code Optimization
+- Refactoring
 
 
 ## [1.0.1] - 2026

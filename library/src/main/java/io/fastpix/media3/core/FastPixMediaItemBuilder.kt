@@ -48,8 +48,8 @@ class FastPixMediaItemBuilder {
     /**
      * Optional stream type ("on-demand" or "live-stream", defaults to "on-demand").
      */
-    var streamType: String? = null
-    
+    var streamType: StreamType? = null
+
     /**
      * Optional playback token for secure playback.
      */
@@ -85,4 +85,10 @@ enum class RenditionOrder {
     Descending,
     Ascending,
     Default
+}
+
+
+enum class StreamType {
+    onDemand,
+    live
 }

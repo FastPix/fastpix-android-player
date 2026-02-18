@@ -15,6 +15,10 @@ A clean, modern Android video player SDK built on top of [AndroidX Media3 (ExoPl
 - **Lifecycle Management** – Automatic ExoPlayer lifecycle handling
 - **Seek Tracking** – Callbacks for seek start and end events
 - **Time Updates** – Continuous time updates during playback (similar to HTML5 `onTimeUpdate`)
+- **Volume Control** – Complete volume management with mute/unmute, volume level control, and device volume monitoring
+- **AutoPlay** – Automatic playback start when media is ready (configurable)
+- **Loop Playback** – Seamless looping functionality for continuous playback
+- **Playback Rate Control** – Adjustable playback speed from 0.25x to 2.0x with multiple speed options
 
 ---
 
@@ -35,7 +39,7 @@ Add the following to your `build.gradle.kts` (or `build.gradle`):
 
 ```kotlin
 dependencies {
-    implementation("io.fastpix.player:android-player-sdk:1.0.2")
+    implementation("io.fastpix.player:android-player-sdk:1.0.3")
 }
 ```
 
@@ -70,15 +74,17 @@ Sync your project to download the dependency.
 
 ### 2. Use PlayerView in your Activity/Fragment
 
-#### Option A: Using FastPix Builder (Recommended for FastPix streams)
+#### Option A: Using FastPix Builder with Advanced Configuration (Recommended)
 
 ```kotlin
+import io.fastpix.media3.FastPixPlayer
 import io.fastpix.media3.PlayerView
 import io.fastpix.media3.PlaybackListener
 import io.fastpix.media3.core.PlaybackResolution
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
+    private lateinit var fastPixPlayer: FastPixPlayer
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,14 +95,23 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun setupPlayer() {
+        // Create FastPixPlayer with configuration using builder pattern
+        fastPixPlayer = FastPixPlayer.Builder(this)
+            .setLoop(false)        // Enable looping (optional)
+            .setAutoplay(true)      // Enable autoplay (optional)
+            .build()
+        
+        // Pass the configured player to PlayerView
+        binding.playerView.player = fastPixPlayer
+        
         // Set FastPix media item using builder pattern
-        binding.playerView.setFastPixMediaItem {
+        fastPixPlayer.setFastPixMediaItem {
             playbackId = "your-playback-id"
             maxResolution = PlaybackResolution.FHD_1080
         }
         
         // Add playback listener
-        binding.playerView.addPlaybackListener(object : PlaybackListener {
+        fastPixPlayer.addPlaybackListener(object : PlaybackListener {
             override fun onPlay() {
                 // Playback started
             }
@@ -116,14 +131,22 @@ class MainActivity : AppCompatActivity() {
             override fun onError(error: PlaybackException) {
                 // Handle playback error
             }
+            
+            override fun onVolumeChanged(volumeLevel: Float) {
+                // Handle volume changes from device buttons
+            }
+            
+            override fun onPlaybackRateChanged(rate: Float) {
+                // Handle playback speed changes
+            }
         })
         
-        // Start playback
-        binding.playerView.play()
+        // Autoplay is already configured, no need to call play() if autoplay is enabled
     }
     
     override fun onDestroy() {
         super.onDestroy()
+        fastPixPlayer.removePlaybackListener(playbackListener)
         if (isFinishing) {
             binding.playerView.release()
         }
@@ -228,6 +251,17 @@ playerView.seekTo(positionMs = 5000) // Seek to 5 seconds
 val currentPosition = playerView.getCurrentPosition() // Current position in ms
 val duration = playerView.getDuration()               // Total duration in ms
 val playbackState = playerView.getPlaybackState()    // Player state constant
+
+// Volume control
+playerView.setVolume(0.5f)           // Set volume (0.0f = muted, 1.0f = max)
+val volume = playerView.getVolume()  // Get current volume level
+playerView.mute()                    // Mute playback (saves volume for restoration)
+playerView.unmute()                  // Restore previous volume level
+
+// Playback speed control
+playerView.setPlaybackSpeed(1.5f)    // Set playback speed (e.g., 1.5x)
+val speed = playerView.getPlaybackSpeed() // Get current playback speed
+val availableSpeeds = playerView.getAvailablePlaybackSpeeds() // Get all available speeds
 ```
 
 #### Configuration
@@ -239,9 +273,20 @@ playerView.retainPlayerOnConfigChange = true
 // Enable/disable tap gesture for play/pause (default: true)
 playerView.isTapGestureEnabled = true
 
-// Set whether playback should start automatically when ready
-playerView.setPlayWhenReady(true)
-val playWhenReady = playerView.getPlayWhenReady()
+    // Set whether playback should start automatically when ready
+    playerView.setPlayWhenReady(true)
+    val playWhenReady = playerView.getPlayWhenReady()
+    
+    // Configure loop and autoplay (using FastPixPlayer.Builder)
+    val player = FastPixPlayer.Builder(context)
+        .setLoop(true)      // Enable looping
+        .setAutoplay(true)  // Enable autoplay
+        .build()
+    playerView.player = player
+    
+    // Or configure at runtime
+    player.loop = true
+    player.autoplay = true
 ```
 
 #### Event Listeners
@@ -418,6 +463,16 @@ interface PlaybackListener {
     // Buffering callbacks
     fun onBufferingStart()                          // Called when buffering starts
     fun onBufferingEnd()                            // Called when buffering ends
+    
+    // Volume callbacks
+    fun onVolumeChanged(volumeLevel: Float)         // Called when device volume changes
+    fun onMuteStateChanged(isMuted: Boolean)       // Called when mute state changes
+    
+    // Playback rate callback
+    fun onPlaybackRateChanged(rate: Float)         // Called when playback speed changes
+    
+    // Completion callback
+    fun onCompleted()                               // Called when video playback completes (reaches the end)
 }
 ```
 
@@ -471,10 +526,237 @@ val listener = object : PlaybackListener {
     override fun onBufferingEnd() {
         // Hide buffering indicator
     }
+    
+    override fun onVolumeChanged(volumeLevel: Float) {
+        // Update volume UI when device volume changes
+        volumeSlider.progress = (volumeLevel * 100).toInt()
+    }
+    
+    override fun onMuteStateChanged(isMuted: Boolean) {
+        // Update mute icon
+        muteButton.setImageResource(if (isMuted) R.drawable.ic_volume_off else R.drawable.ic_volume_on)
+    }
+    
+    override fun onPlaybackRateChanged(rate: Float) {
+        // Update playback speed UI
+        speedButton.text = "${rate}x"
+    }
 }
 
 playerView.addPlaybackListener(listener)
 ```
+
+---
+
+## Volume Control
+
+FastPix Player SDK provides comprehensive volume control with support for programmatic volume adjustment, mute/unmute functionality, and automatic device volume monitoring.
+
+### Basic Usage
+
+```kotlin
+// Set volume level (0.0f = muted, 1.0f = maximum)
+playerView.setVolume(0.75f)
+
+// Get current volume level
+val currentVolume = playerView.getVolume()
+
+// Mute playback (saves current volume for restoration)
+playerView.mute()
+
+// Unmute and restore previous volume
+playerView.unmute()
+```
+
+### Volume Change Monitoring
+
+The SDK automatically monitors device volume changes (via hardware buttons or system controls) and notifies listeners:
+
+```kotlin
+playerView.addPlaybackListener(object : PlaybackListener {
+    override fun onVolumeChanged(volumeLevel: Float) {
+        // Called when device volume changes
+        // volumeLevel is between 0.0f (muted) and 1.0f (maximum)
+        updateVolumeUI(volumeLevel)
+    }
+    
+    override fun onMuteStateChanged(isMuted: Boolean) {
+        // Called when mute state changes
+        updateMuteIcon(isMuted)
+    }
+})
+```
+
+### Volume Control Features
+
+- **Volume Range**: 0.0f (muted) to 1.0f (maximum volume)
+- **Mute/Unmute**: Smart mute that saves volume level for restoration
+- **Device Volume Monitoring**: Automatic detection of hardware volume button changes
+- **State Preservation**: Volume state is preserved across configuration changes
+
+---
+
+## AutoPlay
+
+AutoPlay allows playback to start automatically when the media is ready, without requiring a manual call to `play()`.
+
+### Configuration
+
+AutoPlay can be configured during player creation using the builder pattern:
+
+```kotlin
+val player = FastPixPlayer.Builder(context)
+    .setAutoplay(true)  // Enable autoplay
+    .build()
+
+playerView.player = player
+```
+
+### Runtime Configuration
+
+You can also enable or disable autoplay at runtime:
+
+```kotlin
+// Enable autoplay
+player.autoplay = true
+
+// Disable autoplay
+player.autoplay = false
+
+// Check current autoplay state
+val isAutoplayEnabled = player.autoplay
+```
+
+### Behavior
+
+- When `autoplay = true`: Playback automatically starts when media is ready
+- When `autoplay = false`: Playback must be started manually via `play()` or `setPlayWhenReady(true)`
+- Autoplay state is preserved across configuration changes
+
+---
+
+## Loop Playback
+
+Loop playback enables the video to automatically restart from the beginning when it reaches the end, creating a seamless continuous playback experience.
+
+### Configuration
+
+Loop can be configured during player creation using the builder pattern:
+
+```kotlin
+val player = FastPixPlayer.Builder(context)
+    .setLoop(true)  // Enable looping
+    .build()
+
+playerView.player = player
+```
+
+### Runtime Configuration
+
+You can also enable or disable looping at runtime:
+
+```kotlin
+// Enable looping
+player.loop = true
+
+// Disable looping
+player.loop = false
+
+// Check current loop state
+val isLooping = player.loop
+```
+
+### Behavior
+
+- When `loop = true`: Playback automatically restarts from the beginning when it reaches the end
+- When `loop = false`: Playback stops when it reaches the end
+- Loop state is preserved across configuration changes
+- The `onCompleted()` callback is still triggered when the video reaches the end, even with looping enabled
+
+---
+
+## Playback Rate Control
+
+Playback rate control allows users to adjust the playback speed from 0.25x (slow motion) to 2.0x (double speed), providing flexibility for different viewing preferences.
+
+### Available Playback Speeds
+
+The SDK supports the following playback speeds:
+- **0.25x** - Quarter speed (slow motion)
+- **0.5x** - Half speed
+- **0.75x** - Three-quarter speed
+- **1.0x** - Normal speed (default)
+- **1.25x** - 1.25x speed
+- **1.5x** - 1.5x speed
+- **1.75x** - 1.75x speed
+- **2.0x** - Double speed
+
+### Basic Usage
+
+```kotlin
+// Set playback speed to 1.5x
+playerView.setPlaybackSpeed(1.5f)
+
+// Get current playback speed
+val currentSpeed = playerView.getPlaybackSpeed()
+
+// Get all available playback speeds
+val availableSpeeds = playerView.getAvailablePlaybackSpeeds()
+// Returns: [0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f]
+```
+
+### Playback Speed Change Monitoring
+
+Listen for playback speed changes:
+
+```kotlin
+playerView.addPlaybackListener(object : PlaybackListener {
+    override fun onPlaybackRateChanged(rate: Float) {
+        // Called when playback speed changes
+        // rate is the new playback speed (e.g., 1.5f for 1.5x)
+        updateSpeedUI(rate)
+    }
+})
+```
+
+### Example: Speed Selection Menu
+
+```kotlin
+private fun showPlaybackSpeedMenu() {
+    val popupMenu = PopupMenu(this, speedButton)
+    val availableSpeeds = playerView.getAvailablePlaybackSpeeds()
+    val currentSpeed = playerView.getPlaybackSpeed()
+    
+    availableSpeeds.forEachIndexed { index, speed ->
+        val speedLabel = if (speed == speed.toInt().toFloat()) {
+            "${speed.toInt()}x"
+        } else {
+            String.format("%.2fx", speed).trimEnd('0').trimEnd('.')
+        }
+        
+        val menuItem = popupMenu.menu.add(0, index, 0, speedLabel)
+        if (kotlin.math.abs(speed - currentSpeed) < 0.01f) {
+            menuItem.isChecked = true
+        }
+    }
+    
+    popupMenu.menu.setGroupCheckable(0, true, true)
+    
+    popupMenu.setOnMenuItemClickListener { item ->
+        val selectedSpeed = availableSpeeds[item.itemId]
+        playerView.setPlaybackSpeed(selectedSpeed)
+        true
+    }
+    
+    popupMenu.show()
+}
+```
+
+### Features
+
+- **Automatic Speed Adjustment**: If an exact speed is not available, the SDK automatically selects the closest available speed
+- **State Preservation**: Playback speed is preserved across configuration changes
+- **Pitch Preservation**: Audio pitch remains normal at all speeds (no chipmunk effect)
 
 ---
 

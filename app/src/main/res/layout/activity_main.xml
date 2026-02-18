@@ -16,13 +16,13 @@
             android:layout_height="wrap_content"
             android:background="@color/black">
 
-             <io.fastpix.media3.PlayerView
-                 android:id="@+id/player_view"
-                 android:layout_width="match_parent"
-                 android:layout_height="match_parent"/>
-
+            <io.fastpix.media3.PlayerView
+                android:id="@+id/player_view"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"/>
 
             <LinearLayout
+                android:id="@+id/player_controls"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_alignParentBottom="true"
@@ -84,11 +84,33 @@
                         android:layout_marginTop="5dp"
                         android:src="@drawable/ic_forward_10" />
 
+                    <ImageView
+                        android:id="@+id/iv_volume"
+                        android:layout_width="35dp"
+                        android:layout_height="35dp"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginTop="5dp"
+                        android:src="@drawable/ic_volume_on" />
+
+                    <SeekBar
+                        android:id="@+id/sb_volume_slider"
+                        android:layout_gravity="center"
+                        android:layout_weight="1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"/>
+
 
                     <View
                         android:layout_width="match_parent"
-                        android:layout_weight="1"
+                        android:layout_weight="1.5"
                         android:layout_height="1dp"/>
+
+                    <ImageView
+                        android:id="@+id/iv_full_screen"
+                        android:layout_marginTop="5dp"
+                        android:layout_width="35dp"
+                        android:src="@drawable/ic_full_screen"
+                        android:layout_height="35dp"/>
 
                 </LinearLayout>
 
@@ -96,12 +118,12 @@
 
 
             <ImageView
+                android:id="@+id/iv_more"
                 android:layout_alignParentEnd="true"
-                android:id="@+id/iv_full_screen"
                 android:layout_width="wrap_content"
-                android:layout_margin="10dp"
+                android:layout_margin="20dp"
                 android:layout_height="wrap_content"
-                android:src="@drawable/ic_full_screen" />
+                android:src="@drawable/ic_speed" />
 
 
 
