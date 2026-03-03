@@ -134,6 +134,41 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"/>
 
+
+            <RelativeLayout
+                android:id="@+id/iv_seek_preview_rl"
+                android:layout_above="@id/player_controls"
+                android:layout_width="wrap_content"
+                android:visibility="gone"
+                android:layout_alignParentStart="true"
+                android:orientation="vertical"
+                android:layout_height="150dp">
+
+                <ImageView
+                    android:id="@+id/iv_seek_preview"
+                    android:layout_width="100dp"
+                    android:layout_height="150dp"
+                    android:layout_marginBottom="20dp"
+                    android:scaleType="centerCrop"
+                    android:contentDescription="Seek preview thumbnail" />
+
+                <TextView
+                    android:layout_alignParentBottom="true"
+                    android:id="@+id/tv_seek_preview"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:padding="5dp"
+                    android:layout_centerHorizontal="true"
+                    android:text="12:12"
+                    android:scaleType="centerCrop"
+                    android:background="@android:color/white" />
+
+                <!-- Seek Preview Thumbnail -->
+
+
+            </RelativeLayout>
+
+
         </RelativeLayout>
 
 

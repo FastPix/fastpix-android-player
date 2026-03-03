@@ -1,4 +1,4 @@
-package io.fastpix.media3.core
+package io.fastpix.media3
 
 import android.content.Context
 import android.media.AudioManager
@@ -12,16 +12,31 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import io.fastpix.media3.PlaybackListener
-import kotlin.math.abs
+import io.fastpix.media3.core.FastPixMediaItemBuilder
+import io.fastpix.media3.core.PlaybackResolution
+import io.fastpix.media3.core.RenditionOrder
+import io.fastpix.media3.core.fastPixMediaItem
+import io.fastpix.player.seekpreview.PlaybackUrlProvider
+import io.fastpix.player.seekpreview.SeekPreviewManager
+import io.fastpix.player.seekpreview.listeners.SeekPreviewListener
+import io.fastpix.player.seekpreview.models.PreviewFallbackMode
+import io.fastpix.player.seekpreview.models.SeekPreviewConfig
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import java.net.URL
 
 @UnstableApi
 class FastPixPlayer private constructor(
     private val context: Context,
     private val exoPlayer: ExoPlayer,
     initialLoop: Boolean = false,
-    initialAutoplay: Boolean = false
+    initialAutoplay: Boolean = false,
+    private val seekPreviewConfig: SeekPreviewConfig? = null
 ) {
+
+    private val seekPreviewEnabled: Boolean = seekPreviewConfig?.enabled == true
 
     /**
      * Builder class for creating FastPixPlayer instances with configuration.
@@ -31,12 +46,14 @@ class FastPixPlayer private constructor(
      * val player = FastPixPlayer.Builder(context)
      *     .setLoop(true)
      *     .setAutoplay(false)
+     *     .setSeekPreviewConfig(SeekPreviewConfig.Builder().setEnabled(true).build())
      *     .build()
      * ```
      */
     class Builder(private val context: Context) {
         private var loop: Boolean = false
         private var autoplay: Boolean = false
+        private var seekPreviewConfig: SeekPreviewConfig? = null
 
         /**
          * Sets whether playback should loop when it reaches the end.
@@ -61,13 +78,32 @@ class FastPixPlayer private constructor(
         }
 
         /**
+         * Sets seek preview configuration (enabled, custom URL, preload, cache, etc.).
+         * When null, seek preview is disabled. When non-null, use [SeekPreviewConfig.Builder]
+         * to configure enabled, custom spritesheet URL, preload radius, and cache.
+         *
+         * @param config Seek preview config, or null to disable seek preview.
+         * @return This builder instance for method chaining.
+         */
+        fun setSeekPreviewConfig(config: SeekPreviewConfig?): Builder {
+            this.seekPreviewConfig = config
+            return this
+        }
+
+        /**
          * Builds and returns a configured FastPixPlayer instance.
          *
          * @return A new FastPixPlayer instance with the configured settings.
          */
         fun build(): FastPixPlayer {
             val exoPlayer = ExoPlayer.Builder(context).build()
-            return FastPixPlayer(context, exoPlayer, loop, autoplay)
+            return FastPixPlayer(
+                context = context,
+                exoPlayer = exoPlayer,
+                initialLoop = loop,
+                initialAutoplay = autoplay,
+                seekPreviewConfig = seekPreviewConfig
+            )
         }
     }
 
@@ -175,9 +211,21 @@ class FastPixPlayer private constructor(
     private var isTimeUpdateScheduled = false
 
     /**
+     * When true, time updates are not dispatched (e.g. while user is scrubbing the progress bar).
+     * Managed internally by [showPreview] / [hidePreview].
+     */
+    private var timeUpdatesPaused = false
+
+    /**
      * Previous playback state to detect transitions.
      */
     private var previousPlaybackState: Int = Player.STATE_IDLE
+
+    /**
+     * Whether [PlaybackListener.onPlayerReady] has been fired for the current media item.
+     * Reset when new media is set.
+     */
+    private var hasNotifiedPlayerReady: Boolean = false
 
     /**
      * Track if the player listener is currently attached to avoid duplicate listeners.
@@ -226,12 +274,27 @@ class FastPixPlayer private constructor(
     private var currentPlaybackSpeedIndex: Int = 3
 
     /**
+     * Scope for seek preview loading (runs when media is set). Only active when seek preview is enabled.
+     */
+    private val seekPreviewScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /**
+     * Seek preview manager; non-null only when [seekPreviewEnabled] is true.
+     */
+    private val seekPreviewManager: SeekPreviewManager? = if (seekPreviewEnabled) {
+        SeekPreviewManager.create(context, PlaybackUrlProvider { getCurrentPlaybackUrl() }).apply {
+            seekPreviewConfig?.let { config -> setFallbackMode(config.fallbackMode) }
+        }
+    } else null
+
+    /**
      * Runnable that dispatches time updates to all registered listeners.
      */
     private val timeUpdateRunnable = object : Runnable {
         override fun run() {
-            // Pause time updates during seek operations
-            if (isSeeking) {
+            // Pause time updates during seek operations or when app is scrubbing (e.g. finger on seek bar)
+            if (isSeeking || timeUpdatesPaused) {
+                if (timeUpdatesPaused) isTimeUpdateScheduled = false
                 return
             }
 
@@ -249,15 +312,13 @@ class FastPixPlayer private constructor(
                     listener.onTimeUpdate(currentPositionMs, durationMs, bufferedPositionMs)
                 }
 
-                // Schedule next update if still playing
-                if (exoPlayer.isPlaying && playbackListeners.isNotEmpty() && !isSeeking) {
+                // Schedule next update if still playing and not paused
+                if (exoPlayer.isPlaying && playbackListeners.isNotEmpty() && !isSeeking && !timeUpdatesPaused) {
                     timeUpdateHandler.postDelayed(this, DEFAULT_TIME_UPDATE_INTERVAL_MS)
                 } else {
-                    // Stop updates if conditions are no longer met
                     isTimeUpdateScheduled = false
                 }
             } else {
-                // Stop updates if conditions are no longer met
                 isTimeUpdateScheduled = false
             }
         }
@@ -420,6 +481,13 @@ class FastPixPlayer private constructor(
             } else if (previousPlaybackState == Player.STATE_BUFFERING && playbackState == Player.STATE_READY) {
                 // Transitioned from buffering to ready
                 playbackListeners.forEach { it.onBufferingEnd() }
+            }
+
+            // Notify once when video is ready to play for the first time
+            if (playbackState == Player.STATE_READY && !hasNotifiedPlayerReady) {
+                hasNotifiedPlayerReady = true
+                val durationMs = if (exoPlayer.duration != C.TIME_UNSET) exoPlayer.duration else C.TIME_UNSET
+                playbackListeners.forEach { it.onPlayerReady(durationMs) }
             }
 
             // Update previous state
@@ -589,6 +657,95 @@ class FastPixPlayer private constructor(
     fun getExoPlayer(): ExoPlayer = exoPlayer
 
     /**
+     * Gets the current playback URL (stream URI) for the loaded media item.
+     * Works for both playback sources: FastPix (playbackId) and direct URL.
+     *
+     * - When using [setFastPixMediaItem], returns the resolved stream URL (e.g. https://stream.fastpix.io/{playbackId}.m3u8).
+     * - When using [setMediaItem] with a URI, returns that URI.
+     *
+     * @return The current media URI as a string, or null if no media is loaded.
+     */
+    fun getCurrentPlaybackUrl(): String? {
+        val mediaItem = exoPlayer.currentMediaItem ?: return null
+        return mediaItem.localConfiguration?.uri?.toString()
+    }
+
+    // --------------- Seek preview API (when setSeekPreviewEnabled(true)) ---------------
+
+    /**
+     * Sets the listener for seek preview events (loaded, failed, show, hide).
+     * Only used when seek preview was enabled in the builder.
+     *
+     * @param listener Listener instance, or null to clear.
+     */
+    fun setSeekPreviewListener(listener: SeekPreviewListener?) {
+        seekPreviewManager?.setListener(listener)
+    }
+
+    /**
+     * Returns a preview bitmap for the given position, or null if not available.
+     * Call from a coroutine (e.g. when the user drags the seek bar).
+     *
+     * @param timeMs Position in milliseconds.
+     * @return Bitmap for that position, or null.
+     */
+    suspend fun getPreviewBitmap(timeMs: Long): android.graphics.Bitmap? {
+        return seekPreviewManager?.getPreviewBitmap(timeMs)
+    }
+
+    /**
+     * Formats a time position as "MM:SS" for timestamp fallback.
+     *
+     * @param timeMs Position in milliseconds.
+     * @return Formatted string.
+     */
+    fun formatTimestamp(timeMs: Long): String {
+        return seekPreviewManager?.formatTimestamp(timeMs) ?: "00:00"
+    }
+
+    /**
+     * Call when the user starts dragging the seek bar (e.g. onStartTrackingTouch).
+     * Automatically pauses time updates so the seek bar is not overwritten by playback position,
+     * and notifies the seek preview listener via [SeekPreviewListener.onPreviewShow].
+     */
+    fun showPreview() {
+        setTimeUpdatesPaused(true)
+        seekPreviewManager?.showPreview()
+    }
+
+    /**
+     * Loads the seek preview for the given position.
+     * Fetches the bitmap on a background thread and delivers the result via
+     * [SeekPreviewListener.onSpritesheetLoaded]. Automatically cancels any pending
+     * request from a previous call, so it's safe to call from onProgressChanged.
+     *
+     * @param timeMs Position in milliseconds.
+     */
+    fun loadPreview(timeMs: Long) {
+        seekPreviewManager?.loadPreview(timeMs)
+    }
+
+    /**
+     * Call when the user stops dragging the seek bar (e.g. onStopTrackingTouch).
+     * Cancels any pending preview update, resumes time updates, and notifies the listener via
+     * [SeekPreviewListener.onPreviewHide].
+     */
+    fun hidePreview() {
+        seekPreviewManager?.hidePreview()
+        setTimeUpdatesPaused(false)
+    }
+
+    /**
+     * Sets fallback behavior when thumbnails are unavailable.
+     * [PreviewFallbackMode.TIMESTAMP] shows a time label (e.g. "02:30"); [PreviewFallbackMode.NONE] shows nothing.
+     *
+     * @param mode Fallback mode. Default is [PreviewFallbackMode.TIMESTAMP].
+     */
+    fun setFallbackMode(mode: PreviewFallbackMode) {
+        seekPreviewManager?.setFallbackMode(mode)
+    }
+
+    /**
      * Sets a media item to play.
      *
      * @param mediaItem The media item to set.
@@ -619,8 +776,10 @@ class FastPixPlayer private constructor(
         }
 
         // New or different media item - set it and prepare
+        hasNotifiedPlayerReady = false
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
+        triggerSeekPreviewLoadIfEnabled()
     }
 
     /**
@@ -658,8 +817,23 @@ class FastPixPlayer private constructor(
         }
 
         // New or different media items - set them and prepare
+        hasNotifiedPlayerReady = false
         exoPlayer.setMediaItems(mediaItems, startIndex, startPositionMs)
         exoPlayer.prepare()
+        triggerSeekPreviewLoadIfEnabled()
+    }
+
+    /**
+     * Triggers sprite sheet load when seek preview is enabled. Called after media is set.
+     */
+    private fun triggerSeekPreviewLoadIfEnabled() {
+        if (!seekPreviewEnabled || seekPreviewManager == null || seekPreviewConfig == null) return
+        seekPreviewScope.launch {
+            seekPreviewManager.loadSpritesheet(
+                previewEnable = true,
+                config = seekPreviewConfig
+            ).collect { /* progress can be observed via SeekPreviewListener */ }
+        }
     }
 
     /**
@@ -862,7 +1036,7 @@ class FastPixPlayer private constructor(
         var minDifference = Float.MAX_VALUE
 
         for (i in AVAILABLE_PLAYBACK_SPEEDS.indices) {
-            val difference = abs(AVAILABLE_PLAYBACK_SPEEDS[i] - speed)
+            val difference = kotlin.math.abs(AVAILABLE_PLAYBACK_SPEEDS[i] - speed)
             if (difference < minDifference) {
                 minDifference = difference
                 closestIndex = i
@@ -972,9 +1146,24 @@ class FastPixPlayer private constructor(
      * Updates are only dispatched while playback is active and listeners are registered.
      */
     private fun startTimeUpdates() {
-        if (!isTimeUpdateScheduled && playbackListeners.isNotEmpty() && exoPlayer.isPlaying) {
+        if (!isTimeUpdateScheduled && playbackListeners.isNotEmpty() && exoPlayer.isPlaying && !timeUpdatesPaused) {
             isTimeUpdateScheduled = true
             timeUpdateHandler.post(timeUpdateRunnable)
+        }
+    }
+
+    /**
+     * Pauses or resumes periodic time updates (e.g. [PlaybackListener.onTimeUpdate]).
+     * Called internally by [showPreview] and [hidePreview] so the seek bar is not
+     * overwritten by playback position while the user is scrubbing.
+     *
+     * @param paused true to stop time updates, false to resume (and start again if playing)
+     */
+    private fun setTimeUpdatesPaused(paused: Boolean) {
+        if (timeUpdatesPaused == paused) return
+        timeUpdatesPaused = paused
+        if (!paused && playbackListeners.isNotEmpty() && exoPlayer.isPlaying) {
+            startTimeUpdates()
         }
     }
 
@@ -1055,6 +1244,7 @@ class FastPixPlayer private constructor(
         stopTimeUpdates()
         stopVolumeMonitoring()
         completeSeekIfInProgress()
+        seekPreviewManager?.release()
         detachPlayerListener()
         exoPlayer.release()
     }
