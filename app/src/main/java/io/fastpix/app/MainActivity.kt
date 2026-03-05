@@ -3,10 +3,12 @@ package io.fastpix.app
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.database.ContentObserver
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import android.view.MenuItem
 import android.view.View
@@ -23,9 +25,14 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import io.fastpix.app.databinding.ActivityMainBinding
-import io.fastpix.media3.core.FastPixPlayer
+import io.fastpix.media3.FastPixPlayer
 import io.fastpix.media3.PlaybackListener
 import io.fastpix.media3.core.StreamType
+import io.fastpix.player.seekpreview.listeners.SeekPreviewListener
+import io.fastpix.player.seekpreview.models.PreviewFallbackMode
+import io.fastpix.player.seekpreview.models.SeekPreviewConfig
+import io.fastpix.player.seekpreview.models.SpritesheetMetadata
+
 
 /**
  * Example usage of io.fastpix.media3.PlayerView.
@@ -84,7 +91,6 @@ class MainActivity : AppCompatActivity() {
             binding.tvEndTime.text = Utils.formatDurationSmart(fastPixPlayer.getDuration())
             binding.sbProgress.progress = currentPositionMs.toInt()
             binding.sbProgress.secondaryProgress = bufferedPositionMs.toInt()
-
         }
 
         override fun onCompleted() {
@@ -153,7 +159,6 @@ class MainActivity : AppCompatActivity() {
 
         override fun onMuteStateChanged(isMuted: Boolean) {
             super.onMuteStateChanged(isMuted)
-            // Update mute state to match device volume
             isMute = isMuted
             updateVolumeIcon(isMute)
         }
@@ -161,17 +166,46 @@ class MainActivity : AppCompatActivity() {
         override fun onVolumeChanged(volumeLevel: Float) {
             super.onVolumeChanged(volumeLevel)
             Log.d(TAG, "onVolumeChanged: $volumeLevel")
-            // Update volume slider to reflect device volume changes
             binding.sbVolumeSlider.progress = (volumeLevel * 100).toInt()
-            // Update volume icon based on mute state
             updateVolumeIcon(isMute)
-            Log.d(TAG, "Device volume changed: level=$volumeLevel, isMuted=$isMute")
+        }
+
+        override fun onPlayerReady(durationMs: Long) {
+            super.onPlayerReady(durationMs)
+            binding.playerControls.isVisible = true
+        }
+    }
+
+    private val seekPreviewListener = object : SeekPreviewListener {
+        override fun onSpritesheetInitialized() {
+            Log.d(TAG, "Seek preview initialized and ready")
+        }
+
+        override fun onSpritesheetFailed(error: Throwable) {
+            Log.e(TAG, "Seek preview failed", error)
+        }
+
+        override fun onPreviewShow() {
+            binding.ivSeekPreviewRl.visibility = View.VISIBLE
+            binding.tvSeekPreview.visibility = View.VISIBLE
+        }
+
+        override fun onPreviewHide() {
+            binding.ivSeekPreviewRl.visibility = View.GONE
+        }
+
+        override fun onSpritesheetLoaded(metadata: SpritesheetMetadata) {
+            binding.ivSeekPreview.setImageBitmap(metadata.bitmap)
+            metadata.timestampMs?.let {
+                binding.tvSeekPreview.text = Utils.formatDurationSmart(it)
+            }
         }
     }
 
     private var isMute = false
     private var isAutoPlayEnabled = false
     private var isLoopEnabled = false
+    private var autoRotateObserver: ContentObserver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -182,9 +216,17 @@ class MainActivity : AppCompatActivity() {
         )
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        keepScreenOn()
         videoModel = intent.getParcelableExtra(VideoListScreen.VIDEO_MODEL, DummyData::class.java)
         isAutoPlayEnabled = intent.getBooleanExtra(VideoListScreen.AUTO_PLAY, false)
         isLoopEnabled = intent.getBooleanExtra(VideoListScreen.LOOP, false)
+
+        // Lock to portrait initially when auto-rotate is off
+        if (!isAutoRotateEnabled()) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        registerAutoRotateObserver()
+
         setupPlayerView()
         setupControls()
     }
@@ -200,20 +242,22 @@ class MainActivity : AppCompatActivity() {
         binding.playerView.retainPlayerOnConfigChange = true
         binding.playerView.isTapGestureEnabled = false
 
-        // Create FastPixPlayer with desired configuration using builder pattern (Media3 pattern)
-        // All playback-related configurations are set during player creation
+        // Create FastPixPlayer with desired configuration (playback + optional seek preview)
         fastPixPlayer = FastPixPlayer.Builder(this)
             .setLoop(isLoopEnabled)
             .setAutoplay(isAutoPlayEnabled)
+            .setSeekPreviewConfig(
+                SeekPreviewConfig.Builder()
+                    .setEnabled(true)
+                    .setFallbackMode(PreviewFallbackMode.TIMESTAMP)
+                    .build()
+            )
             .build()
 
-        // Add playback listener
         fastPixPlayer.addPlaybackListener(playbackListener)
+        fastPixPlayer.setSeekPreviewListener(seekPreviewListener)
 
-        // Pass the configured player instance to PlayerView (Media3 pattern)
         binding.playerView.player = fastPixPlayer
-
-        // Set media item after player is ready
         setupMediaItem()
     }
 
@@ -358,20 +402,20 @@ class MainActivity : AppCompatActivity() {
 
         binding.sbProgress.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                // Don't seek during dragging, only update UI
                 if (fromUser) {
-                    val duration = fastPixPlayer.getDuration()
-                    if (duration != C.TIME_UNSET) {
-                        binding.tvStartTime.text = Utils.formatDurationSmart(progress.toLong())
-                    }
+                    binding.tvStartTime.text = Utils.formatDurationSmart(progress.toLong())
+                    fastPixPlayer.loadPreview(progress.toLong())
+                    seekBar?.let { movePreviewToThumb(it) }
                 }
             }
 
             override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                // User started dragging
+                fastPixPlayer.showPreview()
+                seekBar?.let { movePreviewToThumb(it) }
             }
 
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                fastPixPlayer.hidePreview()
                 // Seek only when user releases the seekbar
                 val progress = seekBar?.progress ?: 0
                 val duration = fastPixPlayer.getDuration()
@@ -384,22 +428,90 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private var isFullscreen = false
-    private var userTriggeredFullscreen = false
+    /**
+     * Moves the seek preview thumbnail horizontally to align with the seekbar thumb.
+     */
+    private fun movePreviewToThumb(seekBar: SeekBar) {
+        val preview = binding.ivSeekPreviewRl
 
+        preview.post {
+            val thumb = seekBar.thumb ?: return@post
+
+            // Thumb bounds give exact on-screen position
+            val thumbBounds = thumb.bounds
+            val thumbCenterX = thumbBounds.exactCenterX()
+
+            val previewWidth = preview.width
+            val parentWidth = (preview.parent as View).width
+
+            // Center preview exactly above thumb
+            val targetX = (thumbCenterX - previewWidth / 3f)
+                .coerceIn(0f, parentWidth - previewWidth.toFloat())
+
+            preview.translationX = targetX
+        }
+    }
+
+    private var isFullscreen = false
+
+    /**
+     * Checks whether system auto-rotate is enabled.
+     */
+    private fun isAutoRotateEnabled(): Boolean {
+        return Settings.System.getInt(
+            contentResolver,
+            Settings.System.ACCELEROMETER_ROTATION, 0
+        ) == 1
+    }
+
+    /**
+     * Registers a ContentObserver to react when the user toggles auto-rotate
+     * in system settings (e.g. from the notification shade).
+     */
+    private fun registerAutoRotateObserver() {
+        autoRotateObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                onAutoRotateSettingChanged()
+            }
+        }
+        contentResolver.registerContentObserver(
+            Settings.System.getUriFor(Settings.System.ACCELEROMETER_ROTATION),
+            false,
+            autoRotateObserver!!
+        )
+    }
+
+    /**
+     * Called when the system auto-rotate setting changes at runtime.
+     * Adjusts orientation locking accordingly.
+     */
+    private fun onAutoRotateSettingChanged() {
+        if (isAutoRotateEnabled()) {
+            // Auto-rotate turned ON: let sensor control orientation
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        } else {
+            // Auto-rotate turned OFF: lock to current orientation
+            requestedOrientation = if (isFullscreen) {
+                ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+        }
+    }
 
     private fun enterFullscreen() {
         isFullscreen = true
-        userTriggeredFullscreen = true
-        // Lock to landscape orientation
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        // After a delay, allow sensor-based rotation and clear the flag
-        Handler(Looper.getMainLooper()).postDelayed({
-            if (isFullscreen) {  // Only allow sensor if still in fullscreen
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
-            }
-            userTriggeredFullscreen = false
-        }, 5000)
+
+        if (isAutoRotateEnabled()) {
+            // Let sensor take over once the rotation settles
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (isFullscreen) {
+                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
+            }, 1000)
+        }
+
         hideSystemUI()
         binding.ivFullScreen.setImageResource(R.drawable.ic_full_screen_exit)
     }
@@ -419,7 +531,7 @@ class MainActivity : AppCompatActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
 
-        // Handle orientation change and sync fullscreen state
+        // Sync fullscreen state with actual orientation
         when (newConfig.orientation) {
             Configuration.ORIENTATION_LANDSCAPE -> {
                 if (!isFullscreen) {
@@ -453,16 +565,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun exitFullscreen() {
         isFullscreen = false
-        userTriggeredFullscreen = true
-        // Lock to portrait orientation
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        // After a delay, allow sensor-based rotation and clear the flag
-        Handler(Looper.getMainLooper()).postDelayed({
-            if (!isFullscreen) {  // Only allow sensor if still not in fullscreen
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
-            }
-            userTriggeredFullscreen = false
-        }, 5000)
+
+        if (isAutoRotateEnabled()) {
+            // Let sensor take over once the rotation settles
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (!isFullscreen) {
+                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
+            }, 1000)
+        }
+
         showSystemUI()
         binding.ivFullScreen.setImageResource(R.drawable.ic_full_screen)
     }
@@ -587,9 +700,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        autoRotateObserver?.let { contentResolver.unregisterContentObserver(it) }
         fastPixPlayer.removePlaybackListener(playbackListener)
         if (isFinishing) {
             binding.playerView.release()
         }
     }
+
 }

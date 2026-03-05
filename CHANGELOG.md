@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 
 
+## [1.0.4] - 2026
+### Added
+
+- **Seek Preview (Spritesheet thumbnails)**: Thumbnail previews while scrubbing
+  - Added `SeekPreviewConfig` to configure seek preview behavior (enabled, preload, cache, fallback mode)
+  - Added `PreviewFallbackMode` for graceful fallback when thumbnails are unavailable (timestamp/none)
+  - Added `SeekPreviewListener` callbacks: `onSpritesheetInitialized`, `onSpritesheetFailed`, `onPreviewShow`, `onPreviewHide`, `onSpritesheetLoaded`
+  - Added `FastPixPlayer.Builder.setSeekPreviewConfig(config: SeekPreviewConfig?)` to enable seek preview at player creation time
+  - Added `FastPixPlayer.setSeekPreviewListener(listener: SeekPreviewListener?)` to receive preview frames
+  - Added `FastPixPlayer.showPreview()`, `FastPixPlayer.loadPreview(timeMs)`, `FastPixPlayer.hidePreview()` for seek-bar integration
+  - Default FastPix spritesheet URL is auto-resolved from the current stream URL (e.g. `stream.fastpix.io` → `images.fastpix.io` + `/{playbackId}/spritesheet.json`)
+
+
 ## [1.0.3] - 2026
 ### Added
 

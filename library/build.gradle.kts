@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.jetbrains.kotlin.android)
+    id("kotlin-parcelize")
     id("maven-publish")
 }
 
@@ -50,6 +51,13 @@ dependencies {
     api(libs.exoplayer.common)
     api(libs.androidx.media3.exoplayer.hls)
 
+    // Coroutine, OkHttp and Work Manager
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.okhttp)
+    implementation(libs.gson)
+
 }
 
 val localProperties = Properties().apply {
@@ -64,7 +72,7 @@ publishing {
         create<MavenPublication>("bar") {
             groupId = "io.fastpix.player"
             artifactId = "android"
-            version = "1.0.2"
+            version = "1.0.4"
             artifact("${buildDir}/outputs/aar/library-release.aar")
 
             pom.withXml {

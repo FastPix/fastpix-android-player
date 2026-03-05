@@ -4,7 +4,7 @@ import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 
 /**
- * Listener interface for playback events from [io.fastpix.media3.core.FastPixPlayer].
+ * Listener interface for playback events from [FastPixPlayer].
  *
  * This interface provides callbacks for key playback events, allowing developers to
  * react to playback state changes, errors, user interactions, and continuous time updates.
@@ -42,8 +42,8 @@ import androidx.media3.common.PlaybackException
  *
  * Both methods have default empty implementations, so they're optional to override.
  *
- * @see io.fastpix.media3.core.FastPixPlayer.addPlaybackListener
- * @see io.fastpix.media3.core.FastPixPlayer.removePlaybackListener
+ * @see FastPixPlayer.addPlaybackListener
+ * @see FastPixPlayer.removePlaybackListener
  * @see PlayerView
  */
 interface PlaybackListener {
@@ -209,6 +209,25 @@ interface PlaybackListener {
      * Only override if you need to receive completion events.
      */
     fun onCompleted() {
+        // Default empty implementation - optional to override
+    }
+
+    /**
+     * Called when the video is ready to play for the first time after media is set.
+     *
+     * This callback is triggered when the player transitions to
+     * [Player.STATE_READY][androidx.media3.common.Player.STATE_READY] for the first time,
+     * indicating that enough data has been buffered to start playback.
+     *
+     * This is only called once per media item — subsequent ready states
+     * (e.g. after seek or rebuffer) do not trigger this callback.
+     *
+     * This method has a default empty implementation, so it's optional to override.
+     *
+     * @param durationMs The total duration of the media in milliseconds, or
+     *   [C.TIME_UNSET][androidx.media3.common.C.TIME_UNSET] if unknown.
+     */
+    fun onPlayerReady(durationMs: Long) {
         // Default empty implementation - optional to override
     }
 }

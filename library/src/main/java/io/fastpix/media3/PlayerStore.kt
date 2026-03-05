@@ -2,7 +2,7 @@ package io.fastpix.media3
 
 import android.util.SparseArray
 import androidx.media3.common.util.UnstableApi
-import io.fastpix.media3.core.FastPixPlayer
+
 
 /**
  * Internal registry for managing FastPixPlayer instances across configuration changes.

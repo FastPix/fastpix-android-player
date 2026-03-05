@@ -14,6 +14,7 @@ A clean, modern Android video player SDK built on top of [AndroidX Media3 (ExoPl
 - **Gesture Support** – Single-tap to toggle play/pause (configurable)
 - **Lifecycle Management** – Automatic ExoPlayer lifecycle handling
 - **Seek Tracking** – Callbacks for seek start and end events
+- **Seek Preview (Spritesheet thumbnails)** – Show thumbnail previews while scrubbing using FastPix spritesheets (with graceful timestamp fallback)
 - **Time Updates** – Continuous time updates during playback (similar to HTML5 `onTimeUpdate`)
 - **Volume Control** – Complete volume management with mute/unmute, volume level control, and device volume monitoring
 - **AutoPlay** – Automatic playback start when media is ready (configurable)
@@ -39,7 +40,7 @@ Add the following to your `build.gradle.kts` (or `build.gradle`):
 
 ```kotlin
 dependencies {
-    implementation("io.fastpix.player:android-player-sdk:1.0.3")
+    implementation("io.fastpix.player:android-player-sdk:1.0.4")
 }
 ```
 
@@ -47,7 +48,7 @@ Or if using version catalogs, add to `libs.versions.toml`:
 
 ```toml
 [versions]
-fastpix-player = "1.0.2"
+fastpix-player = "1.0.4"
 
 [libraries]
 fastpix-player = { module = "io.fastpix.player:android-player-sdk", version.ref = "fastpix-player" }
@@ -211,6 +212,90 @@ class MainActivity : AppCompatActivity() {
         }
     }
 }
+```
+
+---
+
+## Seek Preview (Spritesheet thumbnails)
+
+Seek preview lets you show **thumbnail previews while the user scrubs** your seek bar. When enabled, the SDK automatically attempts to resolve the default FastPix spritesheet URL from the currently loaded stream URL:
+
+- Stream URL: `https://stream.fastpix.io/{playbackId}.m3u8`
+- Spritesheet metadata: `https://images.fastpix.io/{playbackId}/spritesheet.json`
+
+If no spritesheet exists (or the current media URL is not a FastPix stream), the SDK falls back based on `PreviewFallbackMode` (default: timestamp).
+
+### 1. Enable seek preview on the player
+
+```kotlin
+import io.fastpix.media3.FastPixPlayer
+import io.fastpix.player.seekpreview.models.PreviewFallbackMode
+import io.fastpix.player.seekpreview.models.SeekPreviewConfig
+
+val player = FastPixPlayer.Builder(context)
+    .setSeekPreviewConfig(
+        SeekPreviewConfig.Builder()
+            .setEnabled(true)
+            .setFallbackMode(PreviewFallbackMode.TIMESTAMP)
+            .setEnablePreload(true)
+            .setPreloadRadius(1)
+            .setCacheEnabled(true)
+            .build()
+    )
+    .build()
+
+playerView.player = player
+```
+
+### 2. Listen for preview frames and update your UI
+
+```kotlin
+import io.fastpix.player.seekpreview.listeners.SeekPreviewListenerAdapter
+import io.fastpix.player.seekpreview.models.SpritesheetMetadata
+
+player.setSeekPreviewListener(object : SeekPreviewListenerAdapter() {
+    override fun onPreviewShow() {
+        previewContainer.visibility = View.VISIBLE
+    }
+
+    override fun onPreviewHide() {
+        previewContainer.visibility = View.GONE
+    }
+
+    override fun onSpritesheetLoaded(metadata: SpritesheetMetadata) {
+        // metadata.bitmap can be null when thumbnails are unavailable (timestamp fallback).
+        previewImageView.setImageBitmap(metadata.bitmap)
+        val ts = metadata.timestampMs ?: 0L
+        previewTimeTextView.text = formatTime(ts) // implement your own MM:SS formatter
+    }
+})
+```
+
+### 3. Wire seek preview to your SeekBar scrubbing
+
+Call these methods from your `SeekBar.OnSeekBarChangeListener`:
+
+- `showPreview()` when the user starts dragging
+- `loadPreview(positionMs)` while dragging (safe to call frequently)
+- `hidePreview()` when the user stops dragging
+
+```kotlin
+seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+    override fun onStartTrackingTouch(seekBar: SeekBar) {
+        player.showPreview()
+    }
+
+    override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+        if (fromUser) {
+            player.loadPreview(progress.toLong()) // progress in ms (recommended)
+        }
+    }
+
+    override fun onStopTrackingTouch(seekBar: SeekBar) {
+        player.hidePreview()
+        player.seekTo(seekBar.progress.toLong())
+    }
+})
 ```
 
 ---

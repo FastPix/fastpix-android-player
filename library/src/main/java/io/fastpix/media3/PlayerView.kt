@@ -8,7 +8,6 @@ import android.view.View
 import android.widget.FrameLayout
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
-import io.fastpix.media3.core.FastPixPlayer
 import androidx.media3.ui.PlayerView as Media3PlayerView
 
 @UnstableApi
