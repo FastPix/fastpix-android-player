@@ -1,10 +1,10 @@
-package io.fastpix.player.seekpreview.repository
+package io.fastpix.media3.seekpreview.repository
 
-import io.fastpix.player.seekpreview.cache.CacheManager
-import io.fastpix.player.seekpreview.models.SpritesheetConfig
-import io.fastpix.player.seekpreview.models.SpritesheetMetadata
-import io.fastpix.player.seekpreview.parser.SpritesheetParser
-import io.fastpix.player.seekpreview.util.FastPixSpritesheetUrlResolver
+import io.fastpix.media3.seekpreview.cache.CacheManager
+import io.fastpix.media3.seekpreview.models.SpritesheetConfig
+import io.fastpix.media3.seekpreview.models.SpritesheetMetadata
+import io.fastpix.media3.seekpreview.parser.SpritesheetParser
+import io.fastpix.media3.seekpreview.util.FastPixSpritesheetUrlResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow

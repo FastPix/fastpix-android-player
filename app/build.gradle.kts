@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
     id("kotlin-parcelize")
+    alias(libs.plugins.jetbrains.kotlin.compose)
 }
 
 android {
@@ -35,6 +36,10 @@ android {
         jvmTarget = "11"
     }
 
+    buildFeatures {
+        compose = true
+    }
+
     dataBinding {
         enable = true
     }
@@ -46,8 +51,16 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     implementation(libs.androidx.activity)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.constraintlayout)
-    
+
+    // Compose
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.material3)
+
     // Library module
     implementation(project(":library"))
     

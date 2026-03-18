@@ -25,13 +25,21 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import io.fastpix.app.databinding.ActivityMainBinding
-import io.fastpix.media3.FastPixPlayer
 import io.fastpix.media3.PlaybackListener
+import io.fastpix.media3.core.FastPixPlayer
 import io.fastpix.media3.core.StreamType
-import io.fastpix.player.seekpreview.listeners.SeekPreviewListener
-import io.fastpix.player.seekpreview.models.PreviewFallbackMode
-import io.fastpix.player.seekpreview.models.SeekPreviewConfig
-import io.fastpix.player.seekpreview.models.SpritesheetMetadata
+import io.fastpix.media3.seekpreview.listeners.SeekPreviewListener
+import io.fastpix.media3.seekpreview.models.PreviewFallbackMode
+import io.fastpix.media3.seekpreview.models.SeekPreviewConfig
+import io.fastpix.media3.seekpreview.models.SpritesheetMetadata
+import io.fastpix.media3.tracks.AudioTrack
+import io.fastpix.media3.tracks.AudioTrackError
+import io.fastpix.media3.tracks.AudioTrackListener
+import io.fastpix.media3.tracks.AudioTrackUpdateReason
+import io.fastpix.media3.tracks.SubtitleRenderInfo
+import io.fastpix.media3.tracks.SubtitleTrack
+import io.fastpix.media3.tracks.SubtitleTrackError
+import io.fastpix.media3.tracks.SubtitleTrackListener
 
 
 /**
@@ -202,10 +210,101 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Audio track listener: shows audio track button when multiple tracks exist,
+     * toasts on switch/failure, and logs lifecycle.
+     */
+    private val audioTrackListener = object : AudioTrackListener {
+        override fun onAudioTracksLoaded(
+            tracks: List<AudioTrack>,
+            reason: AudioTrackUpdateReason
+        ) {
+            binding.ivAudioTracks.isVisible = tracks.isNotEmpty()
+            Log.d(TAG, "Audio tracks loaded: ${tracks.size} tracks, reason=$reason")
+        }
+
+        override fun onAudioTracksChange(selectedTrack: AudioTrack) {
+            Log.d(
+                TAG,
+                "Audio track changed: ${selectedTrack.label ?: selectedTrack.languageCode ?: selectedTrack.id}"
+            )
+            Toast.makeText(
+                this@MainActivity,
+                "Audio: ${selectedTrack.label ?: selectedTrack.languageCode ?: "Track ${selectedTrack.id}"}",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        override fun onAudioTracksLoadedFailed(error: AudioTrackError) {
+            val message = when (error) {
+                is AudioTrackError.TrackNotFound -> "Track not found: ${error.trackId}"
+                is AudioTrackError.TrackNotPlayable -> "Track not playable: ${error.trackId}"
+                is AudioTrackError.SelectionFailed -> "Selection failed: ${error.message ?: error.trackId}"
+                is AudioTrackError.PlayerNotReady -> "Player not ready: ${error.trackId}"
+            }
+            Log.e(TAG, "Audio track error: $message")
+            Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+        }
+
+        override fun onAudioTrackSwitching(isSwitching: Boolean) {
+            Log.d(TAG, "Audio track switching: $isSwitching")
+        }
+    }
+
+    /**
+     * Subtitle track listener: shows subtitle button when tracks exist, toasts on change/failure,
+     * and updates the subtitle cue text overlay.
+     */
+    private val subtitleTrackListener = object : SubtitleTrackListener {
+        override fun onSubtitlesLoaded(tracks: List<SubtitleTrack>) {
+            binding.ivSubtitles.isVisible = tracks.isNotEmpty()
+            Log.d(TAG, "Subtitle tracks loaded: ${tracks.size} tracks")
+        }
+
+        override fun onSubtitleChange(track: SubtitleTrack?) {
+            val label = track?.label ?: track?.languageCode ?: track?.id ?: "Off"
+            Log.d(TAG, "Subtitle changed: $label")
+            Toast.makeText(
+                this@MainActivity,
+                "Subtitle: $label",
+                Toast.LENGTH_SHORT
+            ).show()
+            if (track == null) {
+                binding.tvSubtitleCue.isVisible = false
+                binding.tvSubtitleCue.text = ""
+            }
+        }
+
+        override fun onSubtitlesLoadedFailed(error: SubtitleTrackError) {
+            val message = when (error) {
+                is SubtitleTrackError.TrackNotFound -> "Subtitle track not found: ${error.trackId}"
+                is SubtitleTrackError.TrackNotPlayable -> "Subtitle not playable: ${error.trackId}"
+                is SubtitleTrackError.SelectionFailed -> "Subtitle selection failed: ${error.message ?: error.trackId}"
+                is SubtitleTrackError.PlayerNotReady -> "Player not ready: ${error.trackId}"
+            }
+            Log.e(TAG, "Subtitle track error: $message")
+            Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+        }
+
+        override fun onSubtitleCueChange(info: SubtitleRenderInfo) {
+            val text = info.cues.joinToString("\n") { it.text.toString() }.trim()
+            Log.e(TAG, "onSubtitleCueChange: $info", )
+            /*if (text.isEmpty()) {
+                binding.tvSubtitleCue.isVisible = false
+                binding.tvSubtitleCue.text = ""
+            } else {
+                binding.tvSubtitleCue.isVisible = true
+                binding.tvSubtitleCue.text = text
+            }*/
+        }
+    }
+
     private var isMute = false
     private var isAutoPlayEnabled = false
     private var isLoopEnabled = false
     private var autoRotateObserver: ContentObserver? = null
+    private var defaultAudioName: String? = null
+    private var defaultSubtitleName: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -217,9 +316,16 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         keepScreenOn()
-        videoModel = intent.getParcelableExtra(VideoListScreen.VIDEO_MODEL, DummyData::class.java)
+        videoModel = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(VideoListScreen.VIDEO_MODEL, DummyData::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(VideoListScreen.VIDEO_MODEL) as DummyData?
+        }
         isAutoPlayEnabled = intent.getBooleanExtra(VideoListScreen.AUTO_PLAY, false)
         isLoopEnabled = intent.getBooleanExtra(VideoListScreen.LOOP, false)
+        defaultAudioName = intent.getStringExtra(VideoListScreen.DEFAULT_AUDIO_NAME)
+        defaultSubtitleName = intent.getStringExtra(VideoListScreen.DEFAULT_SUBTITLE_NAME)
 
         // Lock to portrait initially when auto-rotate is off
         if (!isAutoRotateEnabled()) {
@@ -255,7 +361,18 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         fastPixPlayer.addPlaybackListener(playbackListener)
+        fastPixPlayer.addAudioTrackListener(audioTrackListener)
+        fastPixPlayer.addSubtitleTrackListener(subtitleTrackListener)
         fastPixPlayer.setSeekPreviewListener(seekPreviewListener)
+
+        // Apply dropdown-selected defaults (language NAME), without forcing anything when "Auto/Off".
+        defaultAudioName
+            ?.takeIf { it.isNotBlank() && !it.equals("Auto", ignoreCase = true) }
+            ?.let { fastPixPlayer.setDefaultAudioTrack(it) }
+
+        defaultSubtitleName
+            ?.takeIf { it.isNotBlank() && !it.equals("Off", ignoreCase = true) }
+            ?.let { fastPixPlayer.setDefaultSubtitleTrack(it) }
 
         binding.playerView.player = fastPixPlayer
         setupMediaItem()
@@ -398,6 +515,14 @@ class MainActivity : AppCompatActivity() {
 
         binding.ivMore.setOnClickListener {
             showPlaybackSpeedMenu(it)
+        }
+
+        binding.ivAudioTracks.setOnClickListener {
+            showAudioTrackMenu(it)
+        }
+
+        binding.ivSubtitles.setOnClickListener {
+            showSubtitleTrackMenu(it)
         }
 
         binding.sbProgress.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -670,6 +795,75 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Shows a popup menu with available audio tracks. Current track is checked.
+     * Calls [FastPixPlayer.setAudioTrack] on selection.
+     */
+    private fun showAudioTrackMenu(anchorView: View) {
+        val tracks = fastPixPlayer.getAudioTracks()
+        val current = fastPixPlayer.getCurrentAudioTrack()
+        if (tracks.isEmpty()) {
+            Toast.makeText(this, "No audio tracks", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val popupMenu = PopupMenu(this, anchorView)
+        tracks.forEachIndexed { index, track ->
+            val label = track.label
+                ?: track.languageCode
+                ?: "Track ${index + 1}"
+            popupMenu.menu.add(0, index, 0, label)
+            if (track.id == current?.id) {
+                popupMenu.menu.getItem(index).isChecked = true
+            }
+        }
+        popupMenu.menu.setGroupCheckable(0, true, true)
+        popupMenu.setOnMenuItemClickListener { item ->
+            val index = item.itemId
+            if (index in tracks.indices) {
+                val track = tracks[index]
+                fastPixPlayer.setAudioTrack(track.id)
+            }
+            true
+        }
+        popupMenu.show()
+    }
+
+    /**
+     * Shows a popup menu with "Off" and available subtitle tracks. Current track is checked.
+     * Calls [FastPixPlayer.setSubtitleTrack] or [FastPixPlayer.disableSubtitles] on selection.
+     */
+    private fun showSubtitleTrackMenu(anchorView: View) {
+        val tracks = fastPixPlayer.getSubtitleTracks()
+        val current = fastPixPlayer.getCurrentSubtitleTrack()
+        val popupMenu = PopupMenu(this, anchorView)
+        // Off option (itemId = -1)
+        popupMenu.menu.add(0, -1, 0, "Off")
+        if (current == null) {
+            popupMenu.menu.getItem(0).isChecked = true
+        }
+        tracks.forEachIndexed { index, track ->
+            val label = track.label
+                ?: track.languageCode
+                ?: "Track ${index + 1}"
+            val forcedTag = if (track.isForced) " (forced)" else ""
+            popupMenu.menu.add(0, index, index + 1, "$label$forcedTag")
+            if (track.id == current?.id) {
+                popupMenu.menu.getItem(index + 1).isChecked = true
+            }
+        }
+        popupMenu.menu.setGroupCheckable(0, true, true)
+        popupMenu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                -1 -> fastPixPlayer.disableSubtitles()
+                else -> if (item.itemId in tracks.indices) {
+                    fastPixPlayer.setSubtitleTrack(tracks[item.itemId].id)
+                }
+            }
+            true
+        }
+        popupMenu.show()
+    }
+
+    /**
      * Formats a playback speed value into a user-friendly label.
      *
      * @param speed The playback speed value (e.g., 1.0f, 1.5f, 2.0f).
@@ -702,6 +896,8 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         autoRotateObserver?.let { contentResolver.unregisterContentObserver(it) }
         fastPixPlayer.removePlaybackListener(playbackListener)
+        fastPixPlayer.removeAudioTrackListener(audioTrackListener)
+        fastPixPlayer.removeSubtitleTrackListener(subtitleTrackListener)
         if (isFinishing) {
             binding.playerView.release()
         }

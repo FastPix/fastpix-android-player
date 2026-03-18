@@ -1,13 +1,13 @@
-package io.fastpix.player.seekpreview.provider
+package io.fastpix.media3.seekpreview.provider
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import io.fastpix.player.seekpreview.cache.CacheManager
-import io.fastpix.player.seekpreview.cache.VideoHashUtil
-import io.fastpix.player.seekpreview.mapper.PreviewMapper
-import io.fastpix.player.seekpreview.models.SeekPreviewConfig
-import io.fastpix.player.seekpreview.models.SpritesheetMetadata
-import io.fastpix.player.seekpreview.parser.SpritesheetParser
+import io.fastpix.media3.seekpreview.cache.CacheManager
+import io.fastpix.media3.seekpreview.cache.VideoHashUtil
+import io.fastpix.media3.seekpreview.mapper.PreviewMapper
+import io.fastpix.media3.seekpreview.models.SeekPreviewConfig
+import io.fastpix.media3.seekpreview.models.SpritesheetMetadata
+import io.fastpix.media3.seekpreview.parser.SpritesheetParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

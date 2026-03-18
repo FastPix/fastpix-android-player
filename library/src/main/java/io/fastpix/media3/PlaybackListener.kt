@@ -4,7 +4,7 @@ import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 
 /**
- * Listener interface for playback events from [FastPixPlayer].
+ * Listener interface for playback events from [io.fastpix.media3.core.FastPixPlayer].
  *
  * This interface provides callbacks for key playback events, allowing developers to
  * react to playback state changes, errors, user interactions, and continuous time updates.
@@ -42,8 +42,8 @@ import androidx.media3.common.PlaybackException
  *
  * Both methods have default empty implementations, so they're optional to override.
  *
- * @see FastPixPlayer.addPlaybackListener
- * @see FastPixPlayer.removePlaybackListener
+ * @see io.fastpix.media3.core.FastPixPlayer.addPlaybackListener
+ * @see io.fastpix.media3.core.FastPixPlayer.removePlaybackListener
  * @see PlayerView
  */
 interface PlaybackListener {

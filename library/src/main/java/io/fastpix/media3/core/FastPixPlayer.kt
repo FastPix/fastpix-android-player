@@ -1,31 +1,44 @@
-package io.fastpix.media3
+package io.fastpix.media3.core
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import io.fastpix.media3.core.FastPixMediaItemBuilder
-import io.fastpix.media3.core.PlaybackResolution
-import io.fastpix.media3.core.RenditionOrder
-import io.fastpix.media3.core.fastPixMediaItem
-import io.fastpix.player.seekpreview.PlaybackUrlProvider
-import io.fastpix.player.seekpreview.SeekPreviewManager
-import io.fastpix.player.seekpreview.listeners.SeekPreviewListener
-import io.fastpix.player.seekpreview.models.PreviewFallbackMode
-import io.fastpix.player.seekpreview.models.SeekPreviewConfig
+import io.fastpix.media3.analytics.AnalyticsConfig
+import io.fastpix.media3.analytics.AnalyticsManager
+import io.fastpix.media3.PlaybackListener
+import io.fastpix.media3.seekpreview.PlaybackUrlProvider
+import androidx.media3.common.text.CueGroup
+import io.fastpix.media3.tracks.AudioTrack
+import io.fastpix.media3.tracks.AudioTrackError
+import io.fastpix.media3.tracks.AudioTrackListener
+import io.fastpix.media3.tracks.AudioTrackUpdateReason
+import io.fastpix.media3.tracks.MediaSelectionController
+import io.fastpix.media3.tracks.SubtitleCueInfo
+import io.fastpix.media3.tracks.SubtitleRenderInfo
+import io.fastpix.media3.tracks.SubtitleTrack
+import io.fastpix.media3.tracks.SubtitleTrackError
+import io.fastpix.media3.tracks.SubtitleTrackListener
+import io.fastpix.media3.tracks.TrackManager
+import io.fastpix.media3.seekpreview.SeekPreviewManager
+import io.fastpix.media3.seekpreview.listeners.SeekPreviewListener
+import io.fastpix.media3.seekpreview.models.PreviewFallbackMode
+import io.fastpix.media3.seekpreview.models.SeekPreviewConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.net.URL
+import kotlin.math.abs
 
 @UnstableApi
 class FastPixPlayer private constructor(
@@ -33,10 +46,16 @@ class FastPixPlayer private constructor(
     private val exoPlayer: ExoPlayer,
     initialLoop: Boolean = false,
     initialAutoplay: Boolean = false,
-    private val seekPreviewConfig: SeekPreviewConfig? = null
+    private val seekPreviewConfig: SeekPreviewConfig? = null,
+    private val analyticsConfig: AnalyticsConfig? = null
 ) {
 
     private val seekPreviewEnabled: Boolean = seekPreviewConfig?.enabled == true
+
+    /**
+     * Analytics manager; non-null only when [analyticsConfig] is set and enabled.
+     */
+    private var analyticsManager: AnalyticsManager? = null
 
     /**
      * Builder class for creating FastPixPlayer instances with configuration.
@@ -47,6 +66,7 @@ class FastPixPlayer private constructor(
      *     .setLoop(true)
      *     .setAutoplay(false)
      *     .setSeekPreviewConfig(SeekPreviewConfig.Builder().setEnabled(true).build())
+     *     .setAnalyticsConfig(AnalyticsConfig.Builder(playerView, "your-workspace-id").build())
      *     .build()
      * ```
      */
@@ -54,6 +74,7 @@ class FastPixPlayer private constructor(
         private var loop: Boolean = false
         private var autoplay: Boolean = false
         private var seekPreviewConfig: SeekPreviewConfig? = null
+        private var analyticsConfig: AnalyticsConfig? = null
 
         /**
          * Sets whether playback should loop when it reaches the end.
@@ -91,6 +112,20 @@ class FastPixPlayer private constructor(
         }
 
         /**
+         * Sets FastPix Analytics configuration. When non-null and [AnalyticsConfig.enabled] is true,
+         * playback events are automatically sent to the FastPix Data dashboard.
+         * When null, analytics is disabled. Analytics never affects playback stability.
+         *
+         * @param config Analytics config with [AnalyticsConfig.playerView], [AnalyticsConfig.workSpaceId],
+         *   and optional metadata; or null to disable analytics.
+         * @return This builder instance for method chaining.
+         */
+        fun setAnalyticsConfig(config: AnalyticsConfig?): Builder {
+            this.analyticsConfig = config
+            return this
+        }
+
+        /**
          * Builds and returns a configured FastPixPlayer instance.
          *
          * @return A new FastPixPlayer instance with the configured settings.
@@ -102,7 +137,8 @@ class FastPixPlayer private constructor(
                 exoPlayer = exoPlayer,
                 initialLoop = loop,
                 initialAutoplay = autoplay,
-                seekPreviewConfig = seekPreviewConfig
+                seekPreviewConfig = seekPreviewConfig,
+                analyticsConfig = analyticsConfig
             )
         }
     }
@@ -189,6 +225,41 @@ class FastPixPlayer private constructor(
      * List of playback listeners.
      */
     private val playbackListeners = mutableListOf<PlaybackListener>()
+
+    /**
+     * List of audio track listeners.
+     */
+    private val audioTrackListeners = mutableListOf<AudioTrackListener>()
+
+    /**
+     * List of subtitle track listeners.
+     */
+    private val subtitleTrackListeners = mutableListOf<SubtitleTrackListener>()
+
+    /**
+     * Unified track manager: discovers and stores audio and subtitle tracks from Media3.
+     */
+    private val trackManager = TrackManager()
+
+    /**
+     * Applies audio and subtitle track selection. Does not prepare or reload.
+     */
+    private val mediaSelectionController = MediaSelectionController(exoPlayer, trackManager)
+
+    /**
+     * True until the first onTracksChanged for the current media (used for INITIAL reason).
+     */
+    private var firstTracksForCurrentMedia = true
+
+    /**
+     * Pending audio track ID to apply when seek completes. Null when no pending switch.
+     */
+    private var pendingAudioTrackId: String? = null
+
+    /**
+     * Pending subtitle track ID to apply when seek completes. Null when no pending switch.
+     */
+    private var pendingSubtitleTrackId: String? = null
 
     /**
      * Whether a seek operation is currently in progress.
@@ -282,7 +353,8 @@ class FastPixPlayer private constructor(
      * Seek preview manager; non-null only when [seekPreviewEnabled] is true.
      */
     private val seekPreviewManager: SeekPreviewManager? = if (seekPreviewEnabled) {
-        SeekPreviewManager.create(context, PlaybackUrlProvider { getCurrentPlaybackUrl() }).apply {
+        SeekPreviewManager.Companion.create(context,
+            PlaybackUrlProvider { getCurrentPlaybackUrl() }).apply {
             seekPreviewConfig?.let { config -> setFallbackMode(config.fallbackMode) }
         }
     } else null
@@ -521,6 +593,10 @@ class FastPixPlayer private constructor(
                     )
                 }
 
+                // Apply any pending audio/subtitle track switch that was deferred during seek
+                applyPendingAudioTrackSwitch()
+                applyPendingSubtitleTrackSwitch()
+
                 // Resume time updates if player is playing
                 if (exoPlayer.isPlaying && playbackListeners.isNotEmpty()) {
                     startTimeUpdates()
@@ -583,6 +659,10 @@ class FastPixPlayer private constructor(
                         )
                     }
 
+                    // Apply any pending audio/subtitle track switch that was deferred during seek
+                    applyPendingAudioTrackSwitch()
+                    applyPendingSubtitleTrackSwitch()
+
                     // Resume time updates if player is playing
                     if (exoPlayer.isPlaying && playbackListeners.isNotEmpty()) {
                         startTimeUpdates()
@@ -601,6 +681,45 @@ class FastPixPlayer private constructor(
 
                     // The seek will complete when player becomes ready or on next position discontinuity
                 }
+            }
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            trackManager.updateTracks(tracks)
+
+            // Apply default audio/subtitle selection after tracks are updated, without overriding manual picks.
+            // If we apply a change, Media3 will emit another onTracksChanged with the new selected state.
+            if (applyDefaultTrackSelectionIfNeeded()) {
+                return
+            }
+
+            val reason = if (firstTracksForCurrentMedia) {
+                firstTracksForCurrentMedia = false
+                AudioTrackUpdateReason.INITIAL
+            } else {
+                AudioTrackUpdateReason.TRACKS_UPDATED
+            }
+            val audioTracks = trackManager.getAudioTracks()
+            audioTrackListeners.forEach { listener ->
+                listener.onAudioTracksLoaded(audioTracks, reason)
+            }
+            val subtitleTracks = trackManager.getSubtitleTracks()
+            subtitleTrackListeners.forEach { listener ->
+                listener.onSubtitlesLoaded(subtitleTracks)
+            }
+        }
+
+        override fun onCues(cueGroup: CueGroup) {
+            val cues = cueGroup.cues.map { cue ->
+                val text = cue.text?.toString() ?: ""
+                val startUs = cueGroup.presentationTimeUs
+                val startMs = if (startUs != C.TIME_UNSET) startUs / 1000 else 0L
+                val endMs = startMs
+                SubtitleCueInfo(text = text, startTimeMs = startMs, endTimeMs = endMs)
+            }
+            val info = SubtitleRenderInfo(cues = cues)
+            subtitleTrackListeners.forEach { listener ->
+                listener.onSubtitleCueChange(info)
             }
         }
     }
@@ -623,6 +742,16 @@ class FastPixPlayer private constructor(
 
         // Initialize playback speed to normal (1.0x)
         normalize()
+
+        // Initialize analytics on main thread when config is present and enabled
+        if (analyticsConfig != null && analyticsConfig.enabled) {
+            analyticsManager = AnalyticsManager(context, exoPlayer, analyticsConfig)
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                analyticsManager?.initialize()
+            } else {
+                timeUpdateHandler.post { analyticsManager?.initialize() }
+            }
+        }
     }
 
     /**
@@ -689,7 +818,7 @@ class FastPixPlayer private constructor(
      * @param timeMs Position in milliseconds.
      * @return Bitmap for that position, or null.
      */
-    suspend fun getPreviewBitmap(timeMs: Long): android.graphics.Bitmap? {
+    suspend fun getPreviewBitmap(timeMs: Long): Bitmap? {
         return seekPreviewManager?.getPreviewBitmap(timeMs)
     }
 
@@ -737,9 +866,9 @@ class FastPixPlayer private constructor(
 
     /**
      * Sets fallback behavior when thumbnails are unavailable.
-     * [PreviewFallbackMode.TIMESTAMP] shows a time label (e.g. "02:30"); [PreviewFallbackMode.NONE] shows nothing.
+     * [io.fastpix.player.seekpreview.models.PreviewFallbackMode.TIMESTAMP] shows a time label (e.g. "02:30"); [io.fastpix.player.seekpreview.models.PreviewFallbackMode.NONE] shows nothing.
      *
-     * @param mode Fallback mode. Default is [PreviewFallbackMode.TIMESTAMP].
+     * @param mode Fallback mode. Default is [io.fastpix.player.seekpreview.models.PreviewFallbackMode.TIMESTAMP].
      */
     fun setFallbackMode(mode: PreviewFallbackMode) {
         seekPreviewManager?.setFallbackMode(mode)
@@ -777,6 +906,10 @@ class FastPixPlayer private constructor(
 
         // New or different media item - set it and prepare
         hasNotifiedPlayerReady = false
+        firstTracksForCurrentMedia = true
+        pendingAudioTrackId = null
+        pendingSubtitleTrackId = null
+        trackManager.resetSelectionStateForNewMedia()
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
         triggerSeekPreviewLoadIfEnabled()
@@ -818,6 +951,10 @@ class FastPixPlayer private constructor(
 
         // New or different media items - set them and prepare
         hasNotifiedPlayerReady = false
+        firstTracksForCurrentMedia = true
+        pendingAudioTrackId = null
+        pendingSubtitleTrackId = null
+        trackManager.resetSelectionStateForNewMedia()
         exoPlayer.setMediaItems(mediaItems, startIndex, startPositionMs)
         exoPlayer.prepare()
         triggerSeekPreviewLoadIfEnabled()
@@ -1036,7 +1173,7 @@ class FastPixPlayer private constructor(
         var minDifference = Float.MAX_VALUE
 
         for (i in AVAILABLE_PLAYBACK_SPEEDS.indices) {
-            val difference = kotlin.math.abs(AVAILABLE_PLAYBACK_SPEEDS[i] - speed)
+            val difference = abs(AVAILABLE_PLAYBACK_SPEEDS[i] - speed)
             if (difference < minDifference) {
                 minDifference = difference
                 closestIndex = i
@@ -1244,8 +1381,303 @@ class FastPixPlayer private constructor(
         stopTimeUpdates()
         stopVolumeMonitoring()
         completeSeekIfInProgress()
+        pendingAudioTrackId = null
+        analyticsManager?.release()
+        analyticsManager = null
         seekPreviewManager?.release()
         detachPlayerListener()
         exoPlayer.release()
+    }
+
+    // --------------- Audio track API ---------------
+
+    /**
+     * Returns all available audio tracks for the currently loaded media.
+     * Empty if no media is loaded or the media has no multiple audio tracks.
+     * Works with HLS and progressive streams.
+     */
+    fun getAudioTracks(): List<AudioTrack> {
+        return trackManager.getAudioTracks()
+    }
+
+    /**
+     * Returns the currently selected audio track, or null if none or only one track.
+     */
+    fun getCurrentAudioTrack(): AudioTrack? {
+        return trackManager.getCurrentAudioTrack()
+    }
+
+    /**
+     * Switches playback to the audio track with the given [trackId].
+     * Does not restart playback; position and playback state are preserved.
+     * Video rendering is not interrupted.
+     *
+     * If a seek is in progress, the switch is applied when the seek completes.
+     * Safe to call when paused or buffering.
+     *
+     * @param trackId The track id from [AudioTrack.id] (e.g. from [getAudioTracks]).
+     */
+    fun setAudioTrack(trackId: String) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            timeUpdateHandler.post { setAudioTrack(trackId) }
+            return
+        }
+        if (isSeeking) {
+            pendingAudioTrackId = trackId
+            return
+        }
+        // No media loaded — player not ready for track switching
+        if (exoPlayer.mediaItemCount == 0) {
+            audioTrackListeners.forEach {
+                it.onAudioTracksLoadedFailed(AudioTrackError.PlayerNotReady(trackId))
+            }
+            return
+        }
+        val track = trackManager.findAudioTrackById(trackId)
+        when {
+            track == null -> {
+                audioTrackListeners.forEach {
+                    it.onAudioTracksLoadedFailed(AudioTrackError.TrackNotFound(trackId))
+                }
+            }
+            !track.isPlayable -> {
+                audioTrackListeners.forEach {
+                    it.onAudioTracksLoadedFailed(AudioTrackError.TrackNotPlayable(trackId))
+                }
+            }
+            else -> {
+                audioTrackListeners.forEach { it.onAudioTrackSwitching(true) }
+                val applied = mediaSelectionController.setAudioTrack(trackId)
+                if (applied != null) {
+                    trackManager.markAudioManuallySelected()
+                    audioTrackListeners.forEach { it.onAudioTracksChange(applied) }
+                } else {
+                    audioTrackListeners.forEach {
+                        it.onAudioTracksLoadedFailed(AudioTrackError.SelectionFailed(trackId, null))
+                    }
+                }
+                audioTrackListeners.forEach { it.onAudioTrackSwitching(false) }
+            }
+        }
+    }
+
+    /**
+     * Adds a listener for audio track updates and selection events.
+     */
+    fun addAudioTrackListener(listener: AudioTrackListener) {
+        if (!audioTrackListeners.contains(listener)) {
+            audioTrackListeners.add(listener)
+        }
+    }
+
+    /**
+     * Removes an audio track listener.
+     */
+    fun removeAudioTrackListener(listener: AudioTrackListener) {
+        audioTrackListeners.remove(listener)
+    }
+
+    /**
+     * Applies a pending audio track switch that was deferred during seek. Call on main thread.
+     */
+    private fun applyPendingAudioTrackSwitch() {
+        val trackId = pendingAudioTrackId ?: return
+        pendingAudioTrackId = null
+        setAudioTrack(trackId)
+    }
+
+    /**
+     * Applies a pending subtitle track switch that was deferred during seek. Call on main thread.
+     */
+    private fun applyPendingSubtitleTrackSwitch() {
+        val trackId = pendingSubtitleTrackId ?: return
+        pendingSubtitleTrackId = null
+        setSubtitleTrack(trackId)
+    }
+
+    // --------------- Subtitle track API ---------------
+
+    /**
+     * Returns all available subtitle tracks for the currently loaded media.
+     * Empty if no media is loaded or the media has no subtitle tracks.
+     */
+    fun getSubtitleTracks(): List<SubtitleTrack> {
+        return trackManager.getSubtitleTracks()
+    }
+
+    /**
+     * Returns the currently selected subtitle track, or null if none or subtitles are disabled.
+     */
+    fun getCurrentSubtitleTrack(): SubtitleTrack? {
+        return trackManager.getCurrentSubtitleTrack()
+    }
+
+    /**
+     * Switches playback to the subtitle track with the given [trackId].
+     * Does not restart playback; position and playback state are preserved.
+     *
+     * If a seek is in progress, the switch is applied when the seek completes.
+     * Safe to call when paused or buffering.
+     *
+     * @param trackId The track id from [SubtitleTrack.id] (e.g. from [getSubtitleTracks]).
+     */
+    fun setSubtitleTrack(trackId: String) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            timeUpdateHandler.post { setSubtitleTrack(trackId) }
+            return
+        }
+        if (isSeeking) {
+            pendingSubtitleTrackId = trackId
+            return
+        }
+        if (exoPlayer.mediaItemCount == 0) {
+            subtitleTrackListeners.forEach {
+                it.onSubtitlesLoadedFailed(SubtitleTrackError.PlayerNotReady(trackId))
+            }
+            return
+        }
+        val track = trackManager.findSubtitleTrackById(trackId)
+        when {
+            track == null -> {
+                subtitleTrackListeners.forEach {
+                    it.onSubtitlesLoadedFailed(SubtitleTrackError.TrackNotFound(trackId))
+                }
+            }
+            !track.isPlayable -> {
+                subtitleTrackListeners.forEach {
+                    it.onSubtitlesLoadedFailed(SubtitleTrackError.TrackNotPlayable(trackId))
+                }
+            }
+            else -> {
+                val applied = mediaSelectionController.setSubtitleTrack(trackId)
+                if (applied != null) {
+                    trackManager.markSubtitleManuallySelected()
+                    subtitleTrackListeners.forEach { it.onSubtitleChange(applied) }
+                } else {
+                    subtitleTrackListeners.forEach {
+                        it.onSubtitlesLoadedFailed(SubtitleTrackError.SelectionFailed(trackId, null))
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Disables subtitle track selection. Playback position and state are preserved.
+     * Forced subtitles may still render per stream/selector behavior.
+     */
+    fun disableSubtitles() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            timeUpdateHandler.post { disableSubtitles() }
+            return
+        }
+        mediaSelectionController.disableSubtitles()
+        trackManager.markSubtitlesDisabledByUser()
+        subtitleTrackListeners.forEach { it.onSubtitleChange(null) }
+    }
+
+    // --------------- Default track language API ---------------
+
+    /**
+     * Sets a preferred/default audio language to be applied automatically when tracks become available.
+     * Does not restart playback. Manual audio selection is never overridden.
+     */
+    fun setDefaultAudioTrack(languageCode: String) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            timeUpdateHandler.post { setDefaultAudioTrack(languageCode) }
+            return
+        }
+        trackManager.setDefaultAudioTrack(languageCode)
+        // Apply immediately if tracks are already ready; otherwise it will apply on onTracksChanged().
+        applyDefaultTrackSelectionIfNeeded()
+    }
+
+    /**
+     * Sets a preferred/default subtitle language to be applied automatically when tracks become available.
+     * Does not restart playback. Manual subtitle selection is never overridden.
+     */
+    fun setDefaultSubtitleTrack(languageCode: String) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            timeUpdateHandler.post { setDefaultSubtitleTrack(languageCode) }
+            return
+        }
+        trackManager.setDefaultSubtitleTrack(languageCode)
+        // Apply immediately if tracks are already ready; otherwise it will apply on onTracksChanged().
+        applyDefaultTrackSelectionIfNeeded()
+    }
+
+    /**
+     * Applies TrackManager's default-selection decisions using existing Media3 override logic.
+     * Call on main thread only.
+     *
+     * @return true if a selection/disable change was applied (another onTracksChanged is expected).
+     */
+    private fun applyDefaultTrackSelectionIfNeeded(): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) return false
+        if (exoPlayer.mediaItemCount == 0) return false
+
+        var changed = false
+
+        when (val audioAction = trackManager.decideAutoAudioSelection()) {
+            is TrackManager.AutoSelectionAction.SelectTrack -> {
+                val current = trackManager.getCurrentAudioTrack()
+                if (current?.id != audioAction.trackId) {
+                    val applied = mediaSelectionController.setAudioTrack(audioAction.trackId)
+                    if (applied != null) {
+                        changed = true
+                        // Optional but recommended: update UI immediately.
+                        audioTrackListeners.forEach { it.onAudioTracksChange(applied) }
+                    }
+                }
+            }
+            TrackManager.AutoSelectionAction.DisableSubtitles,
+            TrackManager.AutoSelectionAction.NoOp -> Unit
+        }
+
+        when (val subAction = trackManager.decideAutoSubtitleSelection()) {
+            is TrackManager.AutoSelectionAction.SelectTrack -> {
+                val current = trackManager.getCurrentSubtitleTrack()
+                val currentlyDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+                if (current?.id != subAction.trackId || currentlyDisabled) {
+                    val applied = mediaSelectionController.setSubtitleTrack(subAction.trackId)
+                    if (applied != null) {
+                        changed = true
+                        // Optional but recommended: update UI immediately.
+                        subtitleTrackListeners.forEach { it.onSubtitleChange(applied) }
+                    }
+                }
+            }
+            TrackManager.AutoSelectionAction.DisableSubtitles -> {
+                // Only auto-disable when user has NOT explicitly disabled; TrackManager encodes that.
+                val currentlyDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+                // Avoid firing "Subtitle: Off" updates when subtitles are already effectively off.
+                // We only need to disable when a subtitle track is actually selected (e.g., default-selected by stream).
+                val current = trackManager.getCurrentSubtitleTrack()
+                if (!currentlyDisabled && current != null) {
+                    mediaSelectionController.disableSubtitles()
+                    changed = true
+                    subtitleTrackListeners.forEach { it.onSubtitleChange(null) }
+                }
+            }
+            TrackManager.AutoSelectionAction.NoOp -> Unit
+        }
+
+        return changed
+    }
+
+    /**
+     * Adds a listener for subtitle track updates and cue changes.
+     */
+    fun addSubtitleTrackListener(listener: SubtitleTrackListener) {
+        if (!subtitleTrackListeners.contains(listener)) {
+            subtitleTrackListeners.add(listener)
+        }
+    }
+
+    /**
+     * Removes a subtitle track listener.
+     */
+    fun removeSubtitleTrackListener(listener: SubtitleTrackListener) {
+        subtitleTrackListeners.remove(listener)
     }
 }

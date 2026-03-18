@@ -51,12 +51,15 @@ dependencies {
     api(libs.exoplayer.common)
     api(libs.androidx.media3.exoplayer.hls)
 
-    // Coroutine, OkHttp and Work Manager
+    // Seek Preview Dependencies
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.okhttp)
     implementation(libs.gson)
+
+    //Media3 Analytics
+    api(libs.media3)
 
 }
 
@@ -72,7 +75,7 @@ publishing {
         create<MavenPublication>("bar") {
             groupId = "io.fastpix.player"
             artifactId = "android"
-            version = "1.0.4"
+            version = "1.0.5"
             artifact("${buildDir}/outputs/aar/library-release.aar")
 
             pom.withXml {

@@ -19,3 +19,40 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Seek Preview Module
+-keep class io.fastpix.player.seekpreview.** { *; }
+-keep interface io.fastpix.player.seekpreview.** { *; }
+-keepclassmembers class io.fastpix.player.seekpreview.** { *; }
+
+# Keep data models for serialization
+-keep class io.fastpix.player.seekpreview.models.** { *; }
+
+# Keep listeners
+-keep interface io.fastpix.player.seekpreview.listeners.** { *; }
+-keep class io.fastpix.player.seekpreview.listeners.** { *; }
+
+# Gson
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class sun.misc.Unsafe { *; }
+-keep class com.google.gson.** { *; }
+-keep class com.google.gson.stream.** { *; }
+
+# OkHttp
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+
+# Coroutines
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+-keepclassmembers class kotlinx.coroutines.** {
+    volatile <fields>;
+}
+-keep class kotlinx.coroutines.** { *; }
+
+# WorkManager
+-keep class androidx.work.** { *; }
+-keep interface androidx.work.** { *; }

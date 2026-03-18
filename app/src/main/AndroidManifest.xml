@@ -21,11 +21,14 @@
         </activity>
         <activity
             android:name=".MainActivity"
-            android:exported="false"
             android:configChanges="orientation|screenSize">
 
         </activity>
 
+        <activity
+            android:name=".ComposePlayerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize" />
 
     </application>
 

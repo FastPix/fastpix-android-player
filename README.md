@@ -20,6 +20,7 @@ A clean, modern Android video player SDK built on top of [AndroidX Media3 (ExoPl
 - **AutoPlay** – Automatic playback start when media is ready (configurable)
 - **Loop Playback** – Seamless looping functionality for continuous playback
 - **Playback Rate Control** – Adjustable playback speed from 0.25x to 2.0x with multiple speed options
+- **Subtitle and Audio Track Switching** – Discover and switch audio/subtitle tracks, set default languages, disable subtitles, and render subtitle cues via listeners
 
 ---
 
@@ -392,6 +393,12 @@ playerView.clearPlaybackListeners()
 ```kotlin
 // Get underlying ExoPlayer instance for advanced usage
 val exoPlayer = playerView.getPlayer()
+
+// For audio/subtitle track switching, use FastPixPlayer (when view uses FastPixPlayer)
+val fastPixPlayer = playerView.player as? FastPixPlayer
+fastPixPlayer?.getAudioTracks()
+fastPixPlayer?.getSubtitleTracks()
+// See "Subtitle and Audio Track Switching" section for full API.
 ```
 
 ---
@@ -845,6 +852,189 @@ private fun showPlaybackSpeedMenu() {
 
 ---
 
+## Subtitle and Audio Track Switching
+
+The SDK supports discovering and switching **audio** and **subtitle** tracks for media that provides multiple tracks (e.g. HLS with alternate audio or closed captions). These APIs are available on **FastPixPlayer**; use `playerView.player as FastPixPlayer` when your view is backed by a FastPixPlayer instance.
+
+### Audio track switching
+
+#### Get available and current audio tracks
+
+```kotlin
+val player = binding.playerView.player as? FastPixPlayer ?: return
+
+// All available audio tracks for the current media
+val audioTracks: List<AudioTrack> = player.getAudioTracks()
+
+// Currently selected audio track (null if only one track or none)
+val current: AudioTrack? = player.getCurrentAudioTrack()
+```
+
+#### Switch audio track
+
+```kotlin
+// Switch to the track with the given id (from AudioTrack.id)
+player.setAudioTrack(trackId)
+```
+
+- Does not restart playback; position and state are preserved.
+- If a seek is in progress, the switch is applied when the seek completes.
+- Safe to call when paused or buffering.
+
+#### Default audio language
+
+Set a preferred language so it is applied automatically when tracks become available (e.g. after loading new media). Manual selection is never overridden.
+
+```kotlin
+player.setDefaultAudioTrack("hi")  // e.g. Hindi
+```
+
+#### Audio track listener
+
+```kotlin
+import io.fastpix.media3.tracks.AudioTrackListener
+import io.fastpix.media3.tracks.AudioTrackUpdateReason
+
+player.addAudioTrackListener(object : AudioTrackListener {
+    override fun onAudioTracksLoaded(
+        tracks: List<AudioTrack>,
+        reason: AudioTrackUpdateReason
+    ) {
+        // reason: INITIAL, MEDIA_CHANGED, or TRACKS_UPDATED
+        updateAudioTrackMenu(tracks)
+    }
+
+    override fun onAudioTracksChange(selectedTrack: AudioTrack) {
+        updateSelectedAudioUI(selectedTrack)
+    }
+
+    override fun onAudioTracksLoadedFailed(error: AudioTrackError) {
+        // Handle TrackNotFound, TrackNotPlayable, SelectionFailed, PlayerNotReady
+        showError(error)
+    }
+
+    override fun onAudioTrackSwitching(isSwitching: Boolean) {
+        if (isSwitching) showSpinner()
+        else hideSpinner()
+    }
+})
+
+// Remove when no longer needed
+player.removeAudioTrackListener(listener)
+```
+
+#### AudioTrack model
+
+`AudioTrack` exposes: `id`, `languageCode`, `languageName`, `label`, `isSelected`, `isPlayable`, `isDefault`, and optional `role`, `channels`, `codec`, `bitrate`, `groupId`. Use `id` when calling `setAudioTrack(trackId)`.
+
+---
+
+### Subtitle track switching
+
+#### Get available and current subtitle tracks
+
+```kotlin
+val player = binding.playerView.player as? FastPixPlayer ?: return
+
+// All available subtitle tracks
+val subtitleTracks: List<SubtitleTrack> = player.getSubtitleTracks()
+
+// Currently selected subtitle track (null if none or subtitles disabled)
+val current: SubtitleTrack? = player.getCurrentSubtitleTrack()
+```
+
+#### Switch subtitle track
+
+```kotlin
+// Enable a specific subtitle track by id (from SubtitleTrack.id)
+player.setSubtitleTrack(trackId)
+```
+
+#### Disable subtitles
+
+```kotlin
+player.disableSubtitles()
+```
+
+- Playback position and state are preserved. Forced subtitles may still render per stream behavior.
+
+#### Default subtitle language
+
+```kotlin
+player.setDefaultSubtitleTrack("en")  // e.g. English
+```
+
+Manual subtitle selection and “subtitles disabled” are never overridden when applying defaults.
+
+#### Subtitle track listener
+
+```kotlin
+import io.fastpix.media3.tracks.SubtitleTrackListener
+import io.fastpix.media3.tracks.SubtitleCueInfo
+import io.fastpix.media3.tracks.SubtitleRenderInfo
+
+player.addSubtitleTrackListener(object : SubtitleTrackListener {
+    override fun onSubtitlesLoaded(tracks: List<SubtitleTrack>) {
+        updateSubtitleTrackMenu(tracks)
+    }
+
+    override fun onSubtitleChange(track: SubtitleTrack?) {
+        // track is null when subtitles are disabled
+        updateSubtitleSelectionUI(track)
+    }
+
+    override fun onSubtitlesLoadedFailed(error: SubtitleTrackError) {
+        // Handle TrackNotFound, TrackNotPlayable, SelectionFailed, PlayerNotReady
+        showError(error)
+    }
+
+    override fun onSubtitleCueChange(info: SubtitleRenderInfo) {
+        // Render current cues (e.g. in a TextView or custom overlay)
+        val cues: List<SubtitleCueInfo> = info.cues
+        subtitleTextView.text = cues.joinToString("\n") { it.text.toString() }
+        // Use cue.startTimeMs / endTimeMs for timing if needed
+    }
+})
+
+player.removeSubtitleTrackListener(listener)
+```
+
+#### SubtitleTrack model
+
+`SubtitleTrack` exposes: `id`, `languageCode`, `languageName`, `label`, `isSelected`, `isPlayable`, `isDefault`, `isForced`, and optional `role`, `codec`, `groupId`. Use `id` with `setSubtitleTrack(trackId)`.
+
+#### Rendering subtitle cues
+
+`SubtitleTrackListener.onSubtitleCueChange(info: SubtitleRenderInfo)` delivers the current cues. Each `SubtitleCueInfo` has `text`, `startTimeMs`, and `endTimeMs`. Use them to drive your subtitle overlay (e.g. show/hide text per cue timing).
+
+---
+
+### Example: audio and subtitle menus
+
+```kotlin
+// Assume FastPixPlayer is set on PlayerView
+val player = binding.playerView.player as FastPixPlayer
+
+// Audio menu
+val audioTracks = player.getAudioTracks()
+audioTracks.forEach { track ->
+    val label = track.label ?: track.languageName ?: track.languageCode ?: track.id
+    // On click:
+    player.setAudioTrack(track.id)
+}
+
+// Subtitle menu (include "Off")
+val subtitleTracks = player.getSubtitleTracks()
+// Add "Off" option that calls player.disableSubtitles()
+subtitleTracks.forEach { track ->
+    val label = track.label ?: track.languageName ?: track.languageCode ?: track.id
+    // On click:
+    player.setSubtitleTrack(track.id)
+}
+```
+
+---
+
 ## Configuration Change Survival
 
 By default, `PlayerView` preserves playback state across configuration changes (rotation, multi-window, etc.). This means:
@@ -941,4 +1131,3 @@ See the `app` module for a complete example implementation demonstrating:
 - Seek bar integration
 - Fullscreen mode
 - Configuration change handling
-

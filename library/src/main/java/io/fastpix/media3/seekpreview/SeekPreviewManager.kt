@@ -1,4 +1,4 @@
-package io.fastpix.player.seekpreview
+package io.fastpix.media3.seekpreview
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -6,23 +6,23 @@ import androidx.work.Constraints
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import io.fastpix.player.seekpreview.cache.CacheManager
-import io.fastpix.player.seekpreview.cache.CacheManagerImpl
-import io.fastpix.player.seekpreview.listeners.SeekPreviewListener
-import io.fastpix.player.seekpreview.listeners.SpritesheetGenerationListener
-import io.fastpix.player.seekpreview.mapper.PreviewMapper
-import io.fastpix.player.seekpreview.mapper.PreviewMapperImpl
-import io.fastpix.player.seekpreview.models.PreviewFallbackMode
-import io.fastpix.player.seekpreview.models.PreviewMode
-import io.fastpix.player.seekpreview.models.SeekPreviewConfig
-import io.fastpix.player.seekpreview.models.SpritesheetConfig
-import io.fastpix.player.seekpreview.models.SpritesheetMetadata
-import io.fastpix.player.seekpreview.parser.SpritesheetParser
-import io.fastpix.player.seekpreview.parser.SpritesheetParserImpl
-import io.fastpix.player.seekpreview.provider.PreviewBitmapProvider
-import io.fastpix.player.seekpreview.provider.PreviewBitmapProviderImpl
-import io.fastpix.player.seekpreview.repository.SpritesheetRepository
-import io.fastpix.player.seekpreview.repository.SpritesheetRepositoryImpl
+import io.fastpix.media3.seekpreview.cache.CacheManager
+import io.fastpix.media3.seekpreview.cache.CacheManagerImpl
+import io.fastpix.media3.seekpreview.listeners.SeekPreviewListener
+import io.fastpix.media3.seekpreview.listeners.SpritesheetGenerationListener
+import io.fastpix.media3.seekpreview.mapper.PreviewMapper
+import io.fastpix.media3.seekpreview.mapper.PreviewMapperImpl
+import io.fastpix.media3.seekpreview.models.PreviewFallbackMode
+import io.fastpix.media3.seekpreview.models.PreviewMode
+import io.fastpix.media3.seekpreview.models.SeekPreviewConfig
+import io.fastpix.media3.seekpreview.models.SpritesheetConfig
+import io.fastpix.media3.seekpreview.models.SpritesheetMetadata
+import io.fastpix.media3.seekpreview.parser.SpritesheetParser
+import io.fastpix.media3.seekpreview.parser.SpritesheetParserImpl
+import io.fastpix.media3.seekpreview.provider.PreviewBitmapProvider
+import io.fastpix.media3.seekpreview.provider.PreviewBitmapProviderImpl
+import io.fastpix.media3.seekpreview.repository.SpritesheetRepository
+import io.fastpix.media3.seekpreview.repository.SpritesheetRepositoryImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,7 +32,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import java.net.URL
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Main public API for seek preview functionality.
@@ -75,9 +75,9 @@ class SeekPreviewManager private constructor(
     private var currentMetadata: SpritesheetMetadata? = null
 
     /** Monotonic counter: incremented for each [loadPreview] call. */
-    private val previewRequestSeq = java.util.concurrent.atomic.AtomicLong(0)
+    private val previewRequestSeq = AtomicLong(0)
     /** Sequence of the latest result that was actually delivered to the listener. */
-    private val previewDeliveredSeq = java.util.concurrent.atomic.AtomicLong(0)
+    private val previewDeliveredSeq = AtomicLong(0)
     
     /**
      * Sets the event listener for seek preview events.

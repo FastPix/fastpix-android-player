@@ -1,4 +1,4 @@
-package io.fastpix.player.seekpreview.util
+package io.fastpix.media3.seekpreview.util
 
 import java.net.URI
 import java.net.URL

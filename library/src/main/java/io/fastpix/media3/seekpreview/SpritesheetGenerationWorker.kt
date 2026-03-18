@@ -1,11 +1,11 @@
-package io.fastpix.player.seekpreview
+package io.fastpix.media3.seekpreview
 
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import io.fastpix.player.seekpreview.listeners.SpritesheetGenerationListener
-import io.fastpix.player.seekpreview.models.SpritesheetConfig
-import io.fastpix.player.seekpreview.repository.SpritesheetGenerator
+import io.fastpix.media3.seekpreview.listeners.SpritesheetGenerationListener
+import io.fastpix.media3.seekpreview.models.SpritesheetConfig
+import io.fastpix.media3.seekpreview.repository.SpritesheetGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

@@ -2,9 +2,9 @@ package io.fastpix.media3.core
 
 /**
  * Builder class for configuring FastPix media items.
- * 
+ *
  * Use this builder to configure playback parameters before creating a MediaItem.
- * 
+ *
  * Example usage:
  * ```
  * val builder = FastPixMediaItemBuilder {
@@ -19,32 +19,32 @@ class FastPixMediaItemBuilder {
      * The FastPix playback ID (required).
      */
     var playbackId: String = ""
-    
+
     /**
      * Optional maximum playback resolution.
      */
     var maxResolution: PlaybackResolution? = null
-    
+
     /**
      * Optional minimum playback resolution.
      */
     var minResolution: PlaybackResolution? = null
-    
+
     /**
      * Optional specific playback resolution.
      */
     var resolution: PlaybackResolution? = null
-    
+
     /**
      * Optional rendition order preference for adaptive streaming.
      */
     var renditionOrder: RenditionOrder? = null
-    
+
     /**
      * Optional custom domain (defaults to "stream.fastpix.io").
      */
     var customDomain: String? = null
-    
+
     /**
      * Optional stream type ("on-demand" or "live-stream", defaults to "on-demand").
      */
@@ -58,7 +58,7 @@ class FastPixMediaItemBuilder {
 
 /**
  * Creates a [FastPixMediaItemBuilder] and configures it using the provided lambda.
- * 
+ *
  * @param block The configuration lambda.
  * @return A configured [FastPixMediaItemBuilder] instance.
  */

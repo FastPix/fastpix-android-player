@@ -1,9 +1,9 @@
-package io.fastpix.player.seekpreview.cache
+package io.fastpix.media3.seekpreview.cache
 
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.LruCache
-import io.fastpix.player.seekpreview.models.SpritesheetMetadata
+import io.fastpix.media3.seekpreview.models.SpritesheetMetadata
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream

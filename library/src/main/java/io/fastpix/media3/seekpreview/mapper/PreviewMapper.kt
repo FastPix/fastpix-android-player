@@ -1,6 +1,6 @@
-package io.fastpix.player.seekpreview.mapper
+package io.fastpix.media3.seekpreview.mapper
 
-import io.fastpix.player.seekpreview.models.SpritesheetMetadata
+import io.fastpix.media3.seekpreview.models.SpritesheetMetadata
 
 /**
  * Maps time positions to frame indices and grid coordinates.

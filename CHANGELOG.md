@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.5] - 2026
+### Added
+
+- **Audio Track Switching**: Support for discovering and switching between multiple audio tracks
+  - Added `getAudioTracks()` to retrieve available audio tracks
+  - Added `getCurrentAudioTrack()` to get the currently selected track
+  - Added `setAudioTrack(trackId: String)` to switch audio tracks dynamically without interrupting playback
+  - Added `setDefaultAudioTrack(languageCode: String)` to automatically select preferred language
+  - Added `AudioTrackListener` with callbacks:
+    - `onAudioTracksLoaded()`
+    - `onAudioTracksChange()`
+    - `onAudioTracksLoadedFailed()`
+    - `onAudioTrackSwitching()`
+
+- **Subtitle Track Switching**: Support for subtitles with dynamic switching and rendering
+  - Added `getSubtitleTracks()` to retrieve available subtitle tracks
+  - Added `getCurrentSubtitleTrack()` to get current subtitle selection
+  - Added `setSubtitleTrack(trackId: String)` to enable specific subtitle track
+  - Added `disableSubtitles()` to turn off subtitles
+  - Added `setDefaultSubtitleTrack(languageCode: String)` for automatic subtitle selection
+  - Added `SubtitleTrackListener` with callbacks:
+    - `onSubtitlesLoaded()`
+    - `onSubtitleChange()`
+    - `onSubtitlesLoadedFailed()`
+    - `onSubtitleCueChange()`
+
+- **Subtitle Rendering Support**
+  - Introduced `SubtitleCueInfo` and `SubtitleRenderInfo` for real-time subtitle rendering
+  - Enables custom subtitle UI implementation using cue updates
 
 ## [1.0.4] - 2026
 ### Added
