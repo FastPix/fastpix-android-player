@@ -17,9 +17,6 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven {
-            url = uri("https://maven.pkg.github.com/FastPix/android-data-androidXmedia3")
-        }
-        maven {
             url = uri("https://maven.pkg.github.com/FastPix/android-data-media3-player-sdk")
             credentials {
                 val props = java.util.Properties()
