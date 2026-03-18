@@ -35,7 +35,20 @@ A clean, modern Android video player SDK built on top of [AndroidX Media3 (ExoPl
 
 ## Installation
 
-### Step 1: Add the dependency
+### Step 1: Add the GitHub Maven Repository to `settings.gradle`
+```groovy
+repositories {
+    maven {
+        url = uri("https://maven.pkg.github.com/FastPix/fastpix-android-player")
+        credentials {
+            username = "<your-github-username>"
+            password = "<your-personal-access-token>"
+        }
+    }
+}
+```
+
+### Step 2: Add the dependency
 
 Add the following to your `build.gradle.kts` (or `build.gradle`):
 
@@ -55,7 +68,7 @@ fastpix-player = "1.0.5"
 fastpix-player = { module = "io.fastpix.player:android-player-sdk", version.ref = "fastpix-player" }
 ```
 
-### Step 2: Sync Gradle
+### Step 3: Sync Gradle
 
 Sync your project to download the dependency.
 
