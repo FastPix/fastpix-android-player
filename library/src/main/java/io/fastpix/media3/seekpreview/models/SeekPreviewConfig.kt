@@ -1,4 +1,4 @@
-package io.fastpix.player.seekpreview.models
+package io.fastpix.media3.seekpreview.models
 
 import android.os.Parcelable
 import kotlinx.parcelize.Parcelize

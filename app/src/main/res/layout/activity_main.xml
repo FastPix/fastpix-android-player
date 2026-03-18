@@ -58,8 +58,8 @@
 
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_marginBottom="10dp"
-                    android:layout_height="wrap_content">
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="10dp">
 
                     <ImageView
                         android:id="@+id/iv_play_pause"
@@ -94,74 +94,111 @@
 
                     <SeekBar
                         android:id="@+id/sb_volume_slider"
-                        android:layout_gravity="center"
-                        android:layout_weight="1"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"/>
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:layout_weight="1" />
 
 
                     <View
                         android:layout_width="match_parent"
-                        android:layout_weight="1.5"
-                        android:layout_height="1dp"/>
+                        android:layout_height="1dp"
+                        android:layout_weight="1.5" />
 
                     <ImageView
                         android:id="@+id/iv_full_screen"
-                        android:layout_marginTop="5dp"
                         android:layout_width="35dp"
-                        android:src="@drawable/ic_full_screen"
-                        android:layout_height="35dp"/>
+                        android:layout_height="35dp"
+                        android:layout_marginTop="5dp"
+                        android:src="@drawable/ic_full_screen" />
 
                 </LinearLayout>
 
             </LinearLayout>
 
-
-            <ImageView
-                android:id="@+id/iv_more"
-                android:layout_alignParentEnd="true"
+            <LinearLayout
                 android:layout_width="wrap_content"
-                android:layout_margin="20dp"
                 android:layout_height="wrap_content"
-                android:src="@drawable/ic_speed" />
+                android:layout_alignParentEnd="true"
+                android:layout_marginTop="20dp">
+
+                <ImageView
+                    android:layout_marginEnd="20dp"
+                    android:id="@+id/iv_subtitles"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:contentDescription="Subtitle tracks"
+                    android:src="@drawable/closed_caption"
+                    android:visibility="gone" />
+
+                <ImageView
+                    android:layout_marginEnd="20dp"
+                    android:id="@+id/iv_audio_tracks"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:contentDescription="Audio tracks"
+                    android:src="@drawable/ic_audiotrack"
+                    android:visibility="gone" />
+
+                <ImageView
+                    android:layout_marginEnd="20dp"
+                    android:id="@+id/iv_more"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:src="@drawable/ic_speed" />
+            </LinearLayout>
 
 
+            <TextView
+                android:id="@+id/tv_subtitle_cue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_above="@id/player_controls"
+                android:layout_centerHorizontal="true"
+                android:layout_marginBottom="16dp"
+                android:background="#80000000"
+                android:gravity="center"
+                android:padding="8dp"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                android:visibility="gone"
+                tools:text="Subtitle text" />
 
             <ProgressBar
-                android:visibility="gone"
-                android:layout_centerInParent="true"
                 android:id="@+id/loader"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
+                android:layout_height="wrap_content"
+                android:layout_centerInParent="true"
+                android:visibility="gone" />
 
 
             <RelativeLayout
                 android:id="@+id/iv_seek_preview_rl"
-                android:layout_above="@id/player_controls"
                 android:layout_width="wrap_content"
-                android:visibility="gone"
+                android:layout_height="150dp"
+                android:layout_above="@id/player_controls"
                 android:layout_alignParentStart="true"
                 android:orientation="vertical"
-                android:layout_height="150dp">
+                android:visibility="gone">
 
                 <ImageView
                     android:id="@+id/iv_seek_preview"
                     android:layout_width="100dp"
                     android:layout_height="150dp"
                     android:layout_marginBottom="20dp"
-                    android:scaleType="centerCrop"
-                    android:contentDescription="Seek preview thumbnail" />
+                    android:contentDescription="Seek preview thumbnail"
+                    android:scaleType="centerCrop" />
 
                 <TextView
-                    android:layout_alignParentBottom="true"
                     android:id="@+id/tv_seek_preview"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:padding="5dp"
+                    android:layout_alignParentBottom="true"
                     android:layout_centerHorizontal="true"
-                    android:text="12:12"
+                    android:background="@android:color/white"
+                    android:padding="5dp"
                     android:scaleType="centerCrop"
-                    android:background="@android:color/white" />
+                    android:text="12:12" />
 
                 <!-- Seek Preview Thumbnail -->
 

@@ -5,6 +5,15 @@ import kotlinx.parcelize.Parcelize
 
 
 val dummyData = listOf<DummyData>(
+
+    DummyData(
+        "Multiple Default Audio",
+        "https://stream.fastpix.io/6a49da1a-6c3e-4c2b-96d2-a0606b8e252a.m3u8",
+    ),
+    DummyData(
+        "Multiple Audio Tracks",
+        "https://stream.fastpix.io/2125094c-db43-4748-90e1-18539f2ccf98.m3u8",
+    ),
     DummyData(
         "Sprite Sheet",
         "https://stream.fastpix.io/ca854fd4-a3d0-4525-bd43-80de50887e1a.m3u8",

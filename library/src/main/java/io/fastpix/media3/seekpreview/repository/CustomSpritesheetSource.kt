@@ -1,9 +1,9 @@
-package io.fastpix.player.seekpreview.repository
+package io.fastpix.media3.seekpreview.repository
 
-import io.fastpix.player.seekpreview.cache.CacheManager
-import io.fastpix.player.seekpreview.cache.VideoHashUtil
-import io.fastpix.player.seekpreview.models.SpritesheetMetadata
-import io.fastpix.player.seekpreview.parser.SpritesheetParser
+import io.fastpix.media3.seekpreview.cache.CacheManager
+import io.fastpix.media3.seekpreview.cache.VideoHashUtil
+import io.fastpix.media3.seekpreview.models.SpritesheetMetadata
+import io.fastpix.media3.seekpreview.parser.SpritesheetParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext

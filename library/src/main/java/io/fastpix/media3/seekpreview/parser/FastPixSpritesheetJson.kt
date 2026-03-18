@@ -1,4 +1,4 @@
-package io.fastpix.player.seekpreview.parser
+package io.fastpix.media3.seekpreview.parser
 
 import com.google.gson.annotations.SerializedName
 

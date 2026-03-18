@@ -1,6 +1,6 @@
-package io.fastpix.player.seekpreview.repository
+package io.fastpix.media3.seekpreview.repository
 
-import io.fastpix.player.seekpreview.models.SpritesheetMetadata
+import io.fastpix.media3.seekpreview.models.SpritesheetMetadata
 import java.io.File
 
 /**

@@ -1,4 +1,4 @@
-package io.fastpix.player.seekpreview.models
+package io.fastpix.media3.seekpreview.models
 
 /**
  * Preview display mode for seek bar thumbnails.

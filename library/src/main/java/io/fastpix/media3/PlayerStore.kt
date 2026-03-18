@@ -2,7 +2,7 @@ package io.fastpix.media3
 
 import android.util.SparseArray
 import androidx.media3.common.util.UnstableApi
-
+import io.fastpix.media3.core.FastPixPlayer
 
 /**
  * Internal registry for managing FastPixPlayer instances across configuration changes.
@@ -23,10 +23,10 @@ import androidx.media3.common.util.UnstableApi
  */
 @UnstableApi
 internal object PlayerStore {
-
+    
     /**
      * Storage for player instances, keyed by view ID.
-     *
+     * 
      * Uses strong references to ensure players survive configuration changes.
      * Players are removed from this store when:
      * - Explicitly released via PlayerView.release()
@@ -34,7 +34,7 @@ internal object PlayerStore {
      * - PlayerView is destroyed without an ID (cannot be recovered)
      */
     private val players = SparseArray<FastPixPlayer>()
-
+    
     /**
      * Retrieves an existing player instance for the given view ID, or null if not found.
      *
@@ -44,7 +44,7 @@ internal object PlayerStore {
     fun getPlayer(viewId: Int): FastPixPlayer? {
         return players.get(viewId)
     }
-
+    
     /**
      * Stores a player instance for the given view ID.
      * If a player already exists for this ID, it is replaced.
@@ -55,7 +55,7 @@ internal object PlayerStore {
     fun putPlayer(viewId: Int, player: FastPixPlayer) {
         players.put(viewId, player)
     }
-
+    
     /**
      * Removes a player instance from the store.
      * Does NOT release the player - that should be done by the caller if needed.
@@ -68,7 +68,7 @@ internal object PlayerStore {
         players.remove(viewId)
         return player
     }
-
+    
     /**
      * Checks if a player exists for the given view ID and is still valid.
      *
@@ -78,7 +78,7 @@ internal object PlayerStore {
     fun hasPlayer(viewId: Int): Boolean {
         return getPlayer(viewId) != null
     }
-
+    
     /**
      * Releases and removes all stored players.
      * Useful for cleanup scenarios or testing.
@@ -89,10 +89,10 @@ internal object PlayerStore {
         for (i in 0 until players.size()) {
             players.valueAt(i)?.let { playersToRelease.add(it) }
         }
-
+        
         // Release all players
         playersToRelease.forEach { it.release() }
-
+        
         // Clear storage
         players.clear()
     }

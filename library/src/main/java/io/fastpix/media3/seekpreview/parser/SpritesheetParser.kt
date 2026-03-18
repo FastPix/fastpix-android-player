@@ -1,8 +1,8 @@
-package io.fastpix.player.seekpreview.parser
+package io.fastpix.media3.seekpreview.parser
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import io.fastpix.player.seekpreview.models.SpritesheetMetadata
+import io.fastpix.media3.seekpreview.models.SpritesheetMetadata
 import java.io.File
 import java.io.InputStream
 

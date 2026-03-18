@@ -1,4 +1,4 @@
-package io.fastpix.player.seekpreview.listeners
+package io.fastpix.media3.seekpreview.listeners
 
 import java.io.File
 

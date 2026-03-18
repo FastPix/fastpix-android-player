@@ -1,4 +1,4 @@
-package io.fastpix.player.seekpreview
+package io.fastpix.media3.seekpreview
 
 /**
  * Provides the current playback/stream URL for default spritesheet resolution.
@@ -7,8 +7,8 @@ package io.fastpix.player.seekpreview
  * no explicit URL is provided.
  *
  * Example: use [FastPixPlayer.getCurrentPlaybackUrl] so the manager reads the URL
- * from the player that was set via [io.fastpix.media3.FastPixPlayer.setFastPixMediaItem]
- * or [io.fastpix.media3.FastPixPlayer.setMediaItem].
+ * from the player that was set via [io.fastpix.media3.core.FastPixPlayer.setFastPixMediaItem]
+ * or [io.fastpix.media3.core.FastPixPlayer.setMediaItem].
  */
 fun interface PlaybackUrlProvider {
     /**

@@ -1,6 +1,6 @@
-package io.fastpix.player.seekpreview.listeners
+package io.fastpix.media3.seekpreview.listeners
 
-import io.fastpix.player.seekpreview.models.SpritesheetMetadata
+import io.fastpix.media3.seekpreview.models.SpritesheetMetadata
 
 /**
  * Listener for seek preview events.
@@ -33,7 +33,7 @@ interface SeekPreviewListener {
 
     /**
      * Called when a preview frame is ready for display.
-     * Triggered by [io.fastpix.player.seekpreview.SeekPreviewManager.loadPreview].
+     * Triggered by [io.fastpix.media3.seekpreview.SeekPreviewManager.loadPreview].
      * The [metadata] includes [SpritesheetMetadata.bitmap] and [SpritesheetMetadata.timestampMs]
      * for the current seek position.
      *
