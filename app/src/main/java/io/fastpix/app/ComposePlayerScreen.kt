@@ -26,6 +26,8 @@ import io.fastpix.media3.PlayerView
 import io.fastpix.media3.core.FastPixPlayer
 import io.fastpix.media3.core.StreamType
 import io.fastpix.media3.PlaybackListener
+import io.fastpix.media3.seekpreview.models.PreviewFallbackMode
+import io.fastpix.media3.seekpreview.models.SeekPreviewConfig
 
 /**
  * Compose usage of FastPixPlayer: embeds the existing [PlayerView] via [AndroidView]
@@ -47,6 +49,12 @@ fun ComposePlayerScreen(
         FastPixPlayer.Builder(context)
             .setLoop(loop)
             .setAutoplay(autoplay)
+            .setSeekPreviewConfig(
+                SeekPreviewConfig.Builder()
+                    .setEnabled(true)
+                    .setFallbackMode(PreviewFallbackMode.TIMESTAMP)
+                    .build()
+            )
             .build()
     }
 
@@ -62,7 +70,12 @@ fun ComposePlayerScreen(
             override fun onPlaybackStateChanged(playing: Boolean) {
                 isPlaying = playing
             }
-            override fun onTimeUpdate(currentPositionMs: Long, durationMs: Long, bufferedPositionMs: Long) {
+
+            override fun onTimeUpdate(
+                currentPositionMs: Long,
+                durationMs: Long,
+                bufferedPositionMs: Long
+            ) {
                 currentPosition = currentPositionMs
                 duration = durationMs
             }
@@ -127,7 +140,11 @@ fun ComposePlayerScreen(
 
         // Bottom: time and play state (optional)
         Text(
-            text = "${Utils.formatDurationSmart(currentPosition)} / ${Utils.formatDurationSmart(duration)}",
+            text = "${Utils.formatDurationSmart(currentPosition)} / ${
+                Utils.formatDurationSmart(
+                    duration
+                )
+            }",
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier
                 .align(Alignment.BottomCenter)

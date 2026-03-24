@@ -87,7 +87,7 @@
                 android:layout_marginHorizontal="16dp"
                 android:layout_marginBottom="8dp"
                 android:text="Test Compose Player (first video)"
-                android:visibility="gone" />
+                 />
 
             <LinearLayout
                 android:layout_marginBottom="50dp"

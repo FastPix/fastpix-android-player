@@ -43,7 +43,7 @@ class VideoListScreen : AppCompatActivity() {
         }
 
         binding.btnComposePlayer.setOnClickListener {
-            val firstVideo = dummyData.firstOrNull()
+            val firstVideo = dummyData[1]
             val intent = Intent(this, ComposePlayerActivity::class.java)
             intent.putExtra(VIDEO_MODEL, firstVideo)
             intent.putExtra(AUTO_PLAY, binding.sAutoPlay.isChecked)
