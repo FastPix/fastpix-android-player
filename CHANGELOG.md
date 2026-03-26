@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.7]
+### Updates:
+- Bumped `media3` version from `1.2.3` to `1.2.4`
+- Updated library version to `1.0.7` in `README.md`, `build.gradle.kts`, and `FastPixPlayerLibraryInfo.kt`
+- Added `AnalyticsConfig` and `VideoDataDetails` integration in `MainActivity`
+- Refactored and cleaned up code in `MainActivity.kt`
+
 ## [1.0.6] - 2026
 ### Fix
   - Crash Fix on Seek Preview Config

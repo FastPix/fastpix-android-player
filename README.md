@@ -54,7 +54,7 @@ Add the following to your `build.gradle.kts` (or `build.gradle`):
 
 ```kotlin
 dependencies {
-    implementation("io.fastpix.player:android:1.0.6")
+    implementation("io.fastpix.player:android:1.0.7")
 }
 ```
 

@@ -25,7 +25,9 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import io.fastpix.app.databinding.ActivityMainBinding
+import io.fastpix.data.domain.model.VideoDataDetails
 import io.fastpix.media3.PlaybackListener
+import io.fastpix.media3.analytics.AnalyticsConfig
 import io.fastpix.media3.core.FastPixPlayer
 import io.fastpix.media3.core.StreamType
 import io.fastpix.media3.seekpreview.listeners.SeekPreviewListener
@@ -288,7 +290,7 @@ class MainActivity : AppCompatActivity() {
 
         override fun onSubtitleCueChange(info: SubtitleRenderInfo) {
             val text = info.cues.joinToString("\n") { it.text.toString() }.trim()
-            Log.e(TAG, "onSubtitleCueChange: $info", )
+            Log.e(TAG, "onSubtitleCueChange: $info")
             /*if (text.isEmpty()) {
                 binding.tvSubtitleCue.isVisible = false
                 binding.tvSubtitleCue.text = ""
@@ -316,12 +318,13 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         keepScreenOn()
-        videoModel = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra(VideoListScreen.VIDEO_MODEL, DummyData::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra(VideoListScreen.VIDEO_MODEL) as DummyData?
-        }
+        videoModel =
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(VideoListScreen.VIDEO_MODEL, DummyData::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(VideoListScreen.VIDEO_MODEL) as DummyData?
+            }
         isAutoPlayEnabled = intent.getBooleanExtra(VideoListScreen.AUTO_PLAY, false)
         isLoopEnabled = intent.getBooleanExtra(VideoListScreen.LOOP, false)
         defaultAudioName = intent.getStringExtra(VideoListScreen.DEFAULT_AUDIO_NAME)
@@ -352,6 +355,13 @@ class MainActivity : AppCompatActivity() {
         fastPixPlayer = FastPixPlayer.Builder(this)
             .setLoop(isLoopEnabled)
             .setAutoplay(isAutoPlayEnabled)
+            .setAnalyticsConfig(
+                AnalyticsConfig.Builder(
+                    binding.playerView,
+                    "work-space-key"
+                )
+                    .setVideoDataDetails(VideoDataDetails("video-id", "video-title")).build()
+            )
             .setSeekPreviewConfig(
                 SeekPreviewConfig.Builder()
                     .setEnabled(true)
