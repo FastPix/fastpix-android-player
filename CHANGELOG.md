@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.8]
+- Bumped `media3` version from `1.2.4` to `1.2.5`
+
 ## [1.0.7]
 ### Updates:
 - Bumped `media3` version from `1.2.3` to `1.2.4`

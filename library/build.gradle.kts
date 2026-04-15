@@ -75,7 +75,7 @@ publishing {
         create<MavenPublication>("bar") {
             groupId = "io.fastpix.player"
             artifactId = "android"
-            version = "1.0.7"
+            version = "1.0.8"
             artifact("${buildDir}/outputs/aar/library-release.aar")
 
             pom.withXml {
