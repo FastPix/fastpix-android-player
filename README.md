@@ -232,25 +232,25 @@ class MainActivity : AppCompatActivity() {
 
 ## Analytics (FastPix Data Core SDK)
 
-The FastPix Android Data Core SDK is the analytics foundation for FastPix playback on Android. It is **not** a standalone video player; instead, it attaches to your player and automatically captures playback analytics such as:
+The FastPix Android Data Core SDK provides analytics for FastPix playback on Android. It is **not** a standalone video player. Instead, it integrates with your player and automatically captures playback analytics, including:
 
 - Playback lifecycle events (play, pause, ready, complete, errors)
 - Buffering behavior and seek patterns
 - Engagement signals and session-level playback usage
 
-Collected analytics is sent to your FastPix workspace and can be monitored in the FastPix dashboard in near real time. The integration is designed to be lightweight so analytics tracking does not interrupt or degrade playback.
+The SDK sends collected analytics to your FastPix workspace, where you can monitor them in near real time through the FastPix dashboard. The integration is lightweight and does not interrupt or degrade playback.
 
 ### What it is for
 
 Use analytics when you want to:
 - Measure viewer engagement and completion trends
 - Detect buffering and quality-of-experience issues
-- Correlate playback behavior with video metadata (title, id, etc.)
-- Observe player health and failures in production
+- Correlate playback behavior with video metadata (for example, title and ID,etc)
+- Monitor player health and failures in production
 
 ### How to use it
 
-Analytics is configured through `AnalyticsConfig` and passed into `FastPixPlayer.Builder`.
+Configure analytics using `AnalyticsConfig` and pass it to `FastPixPlayer.Builder`.
 
 ```kotlin
 import io.fastpix.data.domain.model.VideoDataDetails
@@ -280,8 +280,8 @@ binding.playerView.player = fastPixPlayer
 
 - `playerView` and `workSpaceId` are mandatory.
 - `videoDataDetails`, `playerDataDetails`, and `customDataDetails` are optional and can be added based on your use case.
-- If analytics setup fails at runtime, playback continues (analytics is fail-safe by design).
-- Current analytics APIs are optimized for Java-first Android integration; Kotlin ergonomics and customization options will continue to improve in upcoming releases.
+- If analytics setup fails at runtime, playback continues. Analytics is fail-safe by design.
+- Current analytics APIs are optimized for Java-first Android integration. Kotlin ergonomics and customization options will improve in future releases.
 
 ---
 
