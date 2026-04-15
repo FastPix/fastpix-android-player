@@ -230,6 +230,61 @@ class MainActivity : AppCompatActivity() {
 
 ---
 
+## Analytics (FastPix Data Core SDK)
+
+The FastPix Android Data Core SDK is the analytics foundation for FastPix playback on Android. It is **not** a standalone video player; instead, it attaches to your player and automatically captures playback analytics such as:
+
+- Playback lifecycle events (play, pause, ready, complete, errors)
+- Buffering behavior and seek patterns
+- Engagement signals and session-level playback usage
+
+Collected analytics is sent to your FastPix workspace and can be monitored in the FastPix dashboard in near real time. The integration is designed to be lightweight so analytics tracking does not interrupt or degrade playback.
+
+### What it is for
+
+Use analytics when you want to:
+- Measure viewer engagement and completion trends
+- Detect buffering and quality-of-experience issues
+- Correlate playback behavior with video metadata (title, id, etc.)
+- Observe player health and failures in production
+
+### How to use it
+
+Analytics is configured through `AnalyticsConfig` and passed into `FastPixPlayer.Builder`.
+
+```kotlin
+import io.fastpix.data.domain.model.VideoDataDetails
+import io.fastpix.media3.analytics.AnalyticsConfig
+import io.fastpix.media3.core.FastPixPlayer
+
+val videoDataDetails = VideoDataDetails("video-123", "Launch Demo")
+
+val analyticsConfig = AnalyticsConfig.Builder(
+    playerView = binding.playerView,         // Required
+    workSpaceId = "your-workspace-id"        // Required
+)
+    .setVideoDataDetails(videoDataDetails) // Optional metadata
+    .setEnabled(true) // default is true
+    .build()
+
+val fastPixPlayer = FastPixPlayer.Builder(this)
+    .setAutoplay(true)
+    .setLoop(false)
+    .setAnalyticsConfig(analyticsConfig)
+    .build()
+
+binding.playerView.player = fastPixPlayer
+```
+
+### Notes
+
+- `playerView` and `workSpaceId` are mandatory.
+- `videoDataDetails`, `playerDataDetails`, and `customDataDetails` are optional and can be added based on your use case.
+- If analytics setup fails at runtime, playback continues (analytics is fail-safe by design).
+- Current analytics APIs are optimized for Java-first Android integration; Kotlin ergonomics and customization options will continue to improve in upcoming releases.
+
+---
+
 ## Seek Preview (Spritesheet thumbnails)
 
 Seek preview lets you show **thumbnail previews while the user scrubs** your seek bar. When enabled, the SDK automatically attempts to resolve the default FastPix spritesheet URL from the currently loaded stream URL:
