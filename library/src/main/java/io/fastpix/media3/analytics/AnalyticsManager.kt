@@ -4,7 +4,9 @@ import android.content.Context
 import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import io.fastpix.data.domain.model.PlayerDataDetails
 import io.fastpix.data.exo.FastPixBaseMedia3Player
+import io.fastpix.media3.info.FastPixPlayerLibraryInfo
 
 /**
  * Internal manager for FastPix Media3 Analytics.
@@ -45,7 +47,10 @@ internal class AnalyticsManager(
                 exoPlayer = player,
                 beaconUrl = config.beaconDomain,
                 workSpaceId = config.workSpaceId,
-                playerDataDetails = config.playerDataDetails,
+                playerDataDetails = PlayerDataDetails(
+                    FastPixPlayerLibraryInfo.PLAYER_NAME,
+                    FastPixPlayerLibraryInfo.PLAYER_VERSION
+                ),
                 videoDataDetails = config.videoDataDetails,
                 customDataDetails = config.customDataDetails
             )

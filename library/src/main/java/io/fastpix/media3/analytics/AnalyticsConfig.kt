@@ -27,7 +27,6 @@ import io.fastpix.media3.PlayerView
 @UnstableApi
 data class AnalyticsConfig internal constructor(
     val videoDataDetails: VideoDataDetails?,
-    val playerDataDetails: PlayerDataDetails?,
     val customDataDetails: CustomDataDetails?,
     val playerView: PlayerView,
     val workSpaceId: String,
@@ -45,7 +44,6 @@ data class AnalyticsConfig internal constructor(
         private val workSpaceId: String
     ) {
         private var videoDataDetails: VideoDataDetails? = null
-        private var playerDataDetails: PlayerDataDetails? = null
         private var customDataDetails: CustomDataDetails? = null
         private var enabled: Boolean = true
         private var beaconDomain: String? = null
@@ -60,14 +58,6 @@ data class AnalyticsConfig internal constructor(
 
         fun setBeaconDomain(beaconDomain: String?): Builder {
             this.beaconDomain = beaconDomain
-            return this
-        }
-
-        /**
-         * Sets optional player metadata (name, version).
-         */
-        fun setPlayerDataDetails(details: PlayerDataDetails?): Builder {
-            this.playerDataDetails = details
             return this
         }
 
@@ -96,7 +86,6 @@ data class AnalyticsConfig internal constructor(
             require(workSpaceId.isNotBlank()) { "workSpaceId must not be blank" }
             return AnalyticsConfig(
                 videoDataDetails = videoDataDetails,
-                playerDataDetails = playerDataDetails,
                 customDataDetails = customDataDetails,
                 playerView = playerView,
                 workSpaceId = workSpaceId,
