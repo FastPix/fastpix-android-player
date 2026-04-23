@@ -5,7 +5,10 @@ import kotlinx.parcelize.Parcelize
 
 
 val dummyData = listOf<DummyData>(
-
+    DummyData(
+        "d3fcdcdd-0608-4767-888d-c7dd5c077a04",
+        "https://stream.fastpix.io/d3fcdcdd-0608-4767-888d-c7dd5c077a04.m3u8",
+    ),
     DummyData(
         "Multiple Default Audio",
         "https://stream.fastpix.io/6a49da1a-6c3e-4c2b-96d2-a0606b8e252a.m3u8",
@@ -13,6 +16,10 @@ val dummyData = listOf<DummyData>(
     DummyData(
         "Multiple Audio Tracks",
         "https://stream.fastpix.io/2125094c-db43-4748-90e1-18539f2ccf98.m3u8",
+    ),
+    DummyData(
+        "DRM Playback",
+        "https://stream.fastpix.io/1e7f733b-4953-4013-97bb-4ec6cca6c5fb.m3u8",
     ),
     DummyData(
         "Sprite Sheet",

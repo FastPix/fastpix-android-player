@@ -11,9 +11,9 @@
 
 
         <LinearLayout
-            android:layout_marginTop="?actionBarSize"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:layout_marginTop="?actionBarSize"
             android:orientation="vertical">
 
             <LinearLayout
@@ -22,8 +22,8 @@
                 android:layout_marginHorizontal="16dp"
                 android:layout_marginTop="12dp"
                 android:layout_marginBottom="12dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -34,9 +34,9 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:paddingBottom="4dp"
                         android:text="Default Audio"
-                        android:textStyle="bold"
-                        android:paddingBottom="4dp" />
+                        android:textStyle="bold" />
 
                     <Spinner
                         android:id="@+id/sp_default_audio"
@@ -57,9 +57,9 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:paddingBottom="4dp"
                         android:text="Default Subtitle"
-                        android:textStyle="bold"
-                        android:paddingBottom="4dp" />
+                        android:textStyle="bold" />
 
                     <Spinner
                         android:id="@+id/sp_default_subtitle"
@@ -71,8 +71,8 @@
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/recycler_view"
                 android:layout_width="match_parent"
-                android:nestedScrollingEnabled="true"
                 android:layout_height="wrap_content"
+                android:nestedScrollingEnabled="true"
                 app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
                 tools:itemCount="10"
                 tools:listitem="@layout/video_row">
@@ -86,13 +86,12 @@
                 android:layout_height="wrap_content"
                 android:layout_marginHorizontal="16dp"
                 android:layout_marginBottom="8dp"
-                android:text="Test Compose Player (first video)"
-                 />
+                android:text="Test Compose Player (first video)" />
 
             <LinearLayout
-                android:layout_marginBottom="50dp"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginBottom="50dp"
                 android:gravity="center">
 
                 <Switch

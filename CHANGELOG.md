@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.9]
+### Added
+
+- **DRM Support (Widevine)**: SDK-level DRM abstraction for protected content playback
+  - Added `DrmConfig` data class for configuring DRM without exposing Media3 internals
+  - Added `DrmManager` internal manager that builds Media3 `DrmConfiguration` from SDK config
+  - Added `drmConfig` property in `FastPixMediaItemBuilder` to enable DRM on a per-media-item basis
+  - DRM license URL is auto-constructed from `playbackId`, `playbackToken`, and `streamType` — no manual URL assembly required
+  - Widevine UUID and multi-session enabled by default
+
+- **Video Quality Switching**: Manual and automatic video quality (rendition) selection
+  - Added `VideoTrack` data model exposing `id`, `width`, `height`, `bitrate`, `label`, `isSelected`, and `isAuto`
+  - Added `getVideoQualities()` to retrieve available video renditions sorted by resolution
+  - Added `getCurrentVideoQuality()` to get the currently active rendition
+  - Added `setVideoQuality(trackId: String)` to lock playback to a specific quality
+  - Added `enableAutoQuality()` to re-enable adaptive bitrate (ABR) selection
+  - Quality switches are deferred during seek operations and applied on seek completion
+  - Video track discovery integrated into `TrackManager` alongside existing audio/subtitle track management
+
+
+
 ## [1.0.8]
 - Bumped `media3-data` version from `1.2.4` to `1.2.5`
 
@@ -14,7 +35,7 @@ All notable changes to this project will be documented in this file.
 
 ## [1.0.6] - 2026
 ### Fix
-  - Crash Fix on Seek Preview Config
+- Crash Fix on Seek Preview Config
 
 ## [1.0.5] - 2026
 ### Added

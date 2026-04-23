@@ -2,7 +2,6 @@ package io.fastpix.media3.tracks
 
 import androidx.media3.common.C
 import androidx.media3.common.TrackSelectionOverride
-import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.util.UnstableApi
 
@@ -74,6 +73,40 @@ internal class MediaSelectionController(
         val parameters = player.trackSelectionParameters
             .buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            .build()
+        player.trackSelectionParameters = parameters
+    }
+
+    /**
+     * Applies a fixed video quality for the given [trackId]. Call on main thread only.
+     *
+     * @return The selected [VideoTrack] if successful, null otherwise.
+     */
+    fun setVideoTrack(trackId: String): VideoTrack? {
+        val track = trackManager.findVideoTrackById(trackId) ?: return null
+        val indices = trackManager.findVideoSelectionIndices(trackId) ?: return null
+        val groups = player.currentTracks.groups
+        if (indices.groupIndex < 0 || indices.groupIndex >= groups.size) return null
+        val group = groups[indices.groupIndex]
+        val mediaTrackGroup = group.mediaTrackGroup
+        if (indices.trackIndex < 0 || indices.trackIndex >= group.length) return null
+        val override = TrackSelectionOverride(mediaTrackGroup, listOf(indices.trackIndex))
+        val parameters = player.trackSelectionParameters
+            .buildUpon()
+            .setOverrideForType(override)
+            .build()
+        player.trackSelectionParameters = parameters
+        return track
+    }
+
+    /**
+     * Clears any fixed video-quality override and re-enables ABR.
+     * Call on main thread only.
+     */
+    fun enableAutoVideoQuality() {
+        val parameters = player.trackSelectionParameters
+            .buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
             .build()
         player.trackSelectionParameters = parameters
     }

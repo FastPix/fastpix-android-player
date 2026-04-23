@@ -37,8 +37,7 @@ class ComposePlayerActivity : ComponentActivity() {
                     ComposePlayerScreen(
                         videoModel = videoModel,
                         autoplay = autoplay,
-                        loop = loop,
-                        onBack = { finish() }
+                        loop = loop
                     )
                 }
             }

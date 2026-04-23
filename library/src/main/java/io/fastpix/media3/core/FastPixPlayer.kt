@@ -8,12 +8,23 @@ import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Tracks
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.Format
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.MediaLoadData
+import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
+import io.fastpix.media3.abr.AbrConfig
+import io.fastpix.media3.abr.NetworkAwareAbrController
+import io.fastpix.media3.abr.NetworkMonitor
+import io.fastpix.media3.abr.PlaybackStallWatchdog
 import io.fastpix.media3.analytics.AnalyticsConfig
 import io.fastpix.media3.analytics.AnalyticsManager
 import io.fastpix.media3.PlaybackListener
@@ -30,6 +41,7 @@ import io.fastpix.media3.tracks.SubtitleTrack
 import io.fastpix.media3.tracks.SubtitleTrackError
 import io.fastpix.media3.tracks.SubtitleTrackListener
 import io.fastpix.media3.tracks.TrackManager
+import io.fastpix.media3.tracks.VideoTrack
 import io.fastpix.media3.seekpreview.SeekPreviewManager
 import io.fastpix.media3.seekpreview.listeners.SeekPreviewListener
 import io.fastpix.media3.seekpreview.models.PreviewFallbackMode
@@ -44,6 +56,8 @@ import kotlin.math.abs
 class FastPixPlayer private constructor(
     private val context: Context,
     private val exoPlayer: ExoPlayer,
+    private val trackSelector: DefaultTrackSelector,
+    private val abrConfig: AbrConfig,
     initialLoop: Boolean = false,
     initialAutoplay: Boolean = false,
     private val seekPreviewConfig: SeekPreviewConfig? = null,
@@ -75,6 +89,7 @@ class FastPixPlayer private constructor(
         private var autoplay: Boolean = false
         private var seekPreviewConfig: SeekPreviewConfig? = null
         private var analyticsConfig: AnalyticsConfig? = null
+        private var abrConfig: AbrConfig = AbrConfig.DEFAULT
 
         /**
          * Sets whether playback should loop when it reaches the end.
@@ -126,15 +141,52 @@ class FastPixPlayer private constructor(
         }
 
         /**
+         * Sets ABR (adaptive bitrate) tuning. Controls how aggressively the player switches
+         * down when bandwidth drops (e.g. WiFi → mobile) and whether the bandwidth meter and
+         * track selector react to network-type changes. Defaults are tuned for faster downgrade
+         * than Media3's out-of-the-box values.
+         *
+         * @param config ABR tuning parameters; use [AbrConfig.DEFAULT] to restore defaults.
+         * @return This builder instance for method chaining.
+         */
+        fun setAbrConfig(config: AbrConfig): Builder {
+            this.abrConfig = config
+            return this
+        }
+
+        /**
          * Builds and returns a configured FastPixPlayer instance.
          *
          * @return A new FastPixPlayer instance with the configured settings.
          */
         fun build(): FastPixPlayer {
-            val exoPlayer = ExoPlayer.Builder(context).build()
+            // Bandwidth meter drives within-network ABR (used by AdaptiveTrackSelection).
+            // Network-type transitions are handled separately by NetworkAwareAbrController, which
+            // applies a maxVideoBitrate cap. Resetting the meter on type change is still useful so
+            // stale Wi-Fi measurements don't seed the initial estimate on cellular.
+            val bandwidthMeter = DefaultBandwidthMeter.Builder(context)
+                .setResetOnNetworkTypeChange(abrConfig.resetBandwidthOnNetworkChange)
+                .build()
+
+            val trackSelectionFactory = AdaptiveTrackSelection.Factory(
+                abrConfig.minDurationForQualityIncreaseMs,
+                abrConfig.maxDurationForQualityDecreaseMs,
+                abrConfig.minDurationToRetainAfterDiscardMs,
+                abrConfig.bandwidthFraction
+            )
+
+            val trackSelector = DefaultTrackSelector(context, trackSelectionFactory)
+
+            val exoPlayer = ExoPlayer.Builder(context)
+                .setBandwidthMeter(bandwidthMeter)
+                .setTrackSelector(trackSelector)
+                .build()
+
             return FastPixPlayer(
                 context = context,
                 exoPlayer = exoPlayer,
+                trackSelector = trackSelector,
+                abrConfig = abrConfig,
                 initialLoop = loop,
                 initialAutoplay = autoplay,
                 seekPreviewConfig = seekPreviewConfig,
@@ -144,6 +196,19 @@ class FastPixPlayer private constructor(
     }
 
     companion object {
+        private const val ERROR_CODE_EMPTY_PLAYBACK_ID = 9002
+        private const val ERROR_CODE_DRM_LICENSE_URL_EMPTY = 9010
+        private const val ERROR_CODE_DRM_CONFIGURATION_FAILED = 9011
+        private const val ERROR_CODE_SET_MEDIA_ITEM_FAILED = 9012
+
+        /**
+         * Error code emitted via `PlaybackListener.onError` when the player has been stuck in
+         * `STATE_BUFFERING` for longer than [AbrConfig.playbackStallTimeoutMs]. Apps can match
+         * on this code to show a "Network too slow to play" message instead of treating it as
+         * a generic playback error.
+         */
+        const val ERROR_CODE_NETWORK_STALL_TIMEOUT: Int = 9013
+
         /**
          * Default interval for playback time updates in milliseconds.
          */
@@ -165,7 +230,6 @@ class FastPixPlayer private constructor(
          * Normal playback speed (1.0x).
          */
         private const val NORMAL_PLAYBACK_SPEED = 1.0f
-
 
         /**
          * Creates a new FastPixPlayer instance with default settings.
@@ -262,6 +326,12 @@ class FastPixPlayer private constructor(
     private var pendingSubtitleTrackId: String? = null
 
     /**
+     * Pending video track ID to apply when seek completes. Null when no pending switch.
+     */
+    private var pendingVideoTrackId: String? = null
+    private var lastNotifiedVideoQuality: VideoTrack? = null
+
+    /**
      * Whether a seek operation is currently in progress.
      */
     private var isSeeking = false
@@ -353,7 +423,8 @@ class FastPixPlayer private constructor(
      * Seek preview manager; non-null only when [seekPreviewEnabled] is true.
      */
     private val seekPreviewManager: SeekPreviewManager? = if (seekPreviewEnabled) {
-        SeekPreviewManager.Companion.create(context,
+        SeekPreviewManager.Companion.create(
+            context,
             PlaybackUrlProvider { getCurrentPlaybackUrl() }).apply {
             seekPreviewConfig?.let { config -> setFallbackMode(config.fallbackMode) }
         }
@@ -383,6 +454,8 @@ class FastPixPlayer private constructor(
                 playbackListeners.forEach { listener ->
                     listener.onTimeUpdate(currentPositionMs, durationMs, bufferedPositionMs)
                 }
+
+                pollVideoQualityChange()
 
                 // Schedule next update if still playing and not paused
                 if (exoPlayer.isPlaying && playbackListeners.isNotEmpty() && !isSeeking && !timeUpdatesPaused) {
@@ -416,8 +489,8 @@ class FastPixPlayer private constructor(
      * @return true if the media item was successfully set, false if there was an error.
      */
     @UnstableApi
-    fun setFastPixMediaItem(block: FastPixMediaItemBuilder.() -> Unit): Boolean {
-        exoPlayer ?: return false
+    fun setFastPixMediaItem(block: FastPixMediaItemBuilder.() -> Unit) {
+        exoPlayer ?: return
 
         // Build the configuration
         val config = fastPixMediaItem(block)
@@ -428,10 +501,9 @@ class FastPixPlayer private constructor(
                 PlaybackException(
                     "Playback ID is empty",
                     IllegalArgumentException(),
-                    9002
+                    ERROR_CODE_EMPTY_PLAYBACK_ID
                 )
             )
-            return false
         }
 
         // Create playback URL
@@ -445,10 +517,45 @@ class FastPixPlayer private constructor(
             playbackToken = config.playbackToken
         )
 
+        val mediaItemBuilder = MediaItem.Builder().setUri(
+            playbackUrl
+        ).setMimeType(MimeTypes.APPLICATION_M3U8)
+        if(config.playbackToken != null) {
+            val drmConfig = config.drmConfig
+            if (drmConfig == null) {
+                notifyPlayerError(
+                    PlaybackException(
+                        "Token is empty",
+                        IllegalArgumentException(),
+                        ERROR_CODE_DRM_LICENSE_URL_EMPTY
+                    )
+                )
+            }
+            val drmConfiguration =
+                DrmManager.buildMediaItemDrmConfiguration(
+                    drmConfig,
+                    config.playbackId,
+                    config.playbackToken,
+                    config.streamType
+                )
+            if (drmConfiguration != null) {
+                mediaItemBuilder.setDrmConfiguration(drmConfiguration)
+            }
+        }
+
         // Create and set the media item
-        val mediaItem = MediaItem.Builder().setUri(playbackUrl).build()
-        setMediaItem(mediaItem)
-        return true
+        val mediaItem = mediaItemBuilder.build()
+        try {
+            setMediaItem(mediaItem)
+        } catch (exception: Exception) {
+            notifyPlayerError(
+                PlaybackException(
+                    "Failed to set media item",
+                    exception,
+                    ERROR_CODE_SET_MEDIA_ITEM_FAILED
+                )
+            )
+        }
     }
 
 
@@ -548,17 +655,18 @@ class FastPixPlayer private constructor(
         override fun onPlaybackStateChanged(playbackState: Int) {
             // Detect buffering state transitions
             if (previousPlaybackState != Player.STATE_BUFFERING && playbackState == Player.STATE_BUFFERING) {
-                // Transitioned to buffering state
                 playbackListeners.forEach { it.onBufferingStart() }
+                pollVideoQualityChange()
             } else if (previousPlaybackState == Player.STATE_BUFFERING && playbackState == Player.STATE_READY) {
-                // Transitioned from buffering to ready
                 playbackListeners.forEach { it.onBufferingEnd() }
+                pollVideoQualityChange()
             }
 
             // Notify once when video is ready to play for the first time
             if (playbackState == Player.STATE_READY && !hasNotifiedPlayerReady) {
                 hasNotifiedPlayerReady = true
-                val durationMs = if (exoPlayer.duration != C.TIME_UNSET) exoPlayer.duration else C.TIME_UNSET
+                val durationMs =
+                    if (exoPlayer.duration != C.TIME_UNSET) exoPlayer.duration else C.TIME_UNSET
                 playbackListeners.forEach { it.onPlayerReady(durationMs) }
             }
 
@@ -596,6 +704,7 @@ class FastPixPlayer private constructor(
                 // Apply any pending audio/subtitle track switch that was deferred during seek
                 applyPendingAudioTrackSwitch()
                 applyPendingSubtitleTrackSwitch()
+                applyPendingVideoTrackSwitch()
 
                 // Resume time updates if player is playing
                 if (exoPlayer.isPlaying && playbackListeners.isNotEmpty()) {
@@ -662,6 +771,7 @@ class FastPixPlayer private constructor(
                     // Apply any pending audio/subtitle track switch that was deferred during seek
                     applyPendingAudioTrackSwitch()
                     applyPendingSubtitleTrackSwitch()
+                    applyPendingVideoTrackSwitch()
 
                     // Resume time updates if player is playing
                     if (exoPlayer.isPlaying && playbackListeners.isNotEmpty()) {
@@ -707,6 +817,7 @@ class FastPixPlayer private constructor(
             subtitleTrackListeners.forEach { listener ->
                 listener.onSubtitlesLoaded(subtitleTracks)
             }
+            notifyVideoQualityChangedIfNeeded(PlaybackListener.VideoQualityChangeSource.ABR)
         }
 
         override fun onCues(cueGroup: CueGroup) {
@@ -722,6 +833,60 @@ class FastPixPlayer private constructor(
                 listener.onSubtitleCueChange(info)
             }
         }
+    }
+
+    private val formatAnalyticsListener = object : AnalyticsListener {
+        override fun onDownstreamFormatChanged(
+            eventTime: AnalyticsListener.EventTime,
+            mediaLoadData: MediaLoadData
+        ) {
+            if (mediaLoadData.trackType != C.TRACK_TYPE_VIDEO) return
+            val format = mediaLoadData.trackFormat ?: return
+            val w = format.width.takeIf { it != Format.NO_VALUE } ?: return
+            val h = format.height.takeIf { it != Format.NO_VALUE } ?: return
+            trackManager.updateRenderedVideoSize(w, h)
+            notifyVideoQualityChangedIfNeeded(PlaybackListener.VideoQualityChangeSource.ABR)
+        }
+    }
+
+    /**
+     * Observes the device's active network and classifies it into a [io.fastpix.media3.abr.NetworkType].
+     * Shared with [abrController] which reacts to type changes.
+     */
+    private val networkMonitor: NetworkMonitor = NetworkMonitor(
+        context = context,
+        cellularHighMinKbps = abrConfig.cellularHighMinKbps,
+        cellularMediumMinKbps = abrConfig.cellularMediumMinKbps,
+    )
+
+    /**
+     * Applies per-network-type `maxVideoBitrate` caps to [trackSelector] and forces re-selection
+     * on downgrade. Within-network rendition switching is still handled by Media3's own
+     * [AdaptiveTrackSelection] under the ceiling we set.
+     */
+    private val abrController: NetworkAwareAbrController = NetworkAwareAbrController(
+        player = exoPlayer,
+        trackSelector = trackSelector,
+        networkMonitor = networkMonitor,
+        config = abrConfig,
+    )
+
+    /**
+     * Emits [ERROR_CODE_NETWORK_STALL_TIMEOUT] via the normal error path when the player stays in
+     * `STATE_BUFFERING` longer than [AbrConfig.playbackStallTimeoutMs]. Fires at most once per
+     * buffering episode; re-arms on the next BUFFERING entry.
+     */
+    private val stallWatchdog: PlaybackStallWatchdog = PlaybackStallWatchdog(
+        player = exoPlayer,
+        timeoutMs = abrConfig.playbackStallTimeoutMs,
+    ) { stallDurationMs, positionMs ->
+        notifyPlayerError(
+            PlaybackException(
+                "Network too slow to sustain playback (stalled ${stallDurationMs}ms at ${positionMs}ms)",
+                null,
+                ERROR_CODE_NETWORK_STALL_TIMEOUT,
+            )
+        )
     }
 
     init {
@@ -752,6 +917,12 @@ class FastPixPlayer private constructor(
                 timeUpdateHandler.post { analyticsManager?.initialize() }
             }
         }
+
+        // Start the network-aware ABR pipeline. Register the monitor first so the controller's
+        // addListener callback sees a non-UNKNOWN initial state.
+        networkMonitor.register()
+        abrController.attach()
+        stallWatchdog.attach()
     }
 
     /**
@@ -759,10 +930,10 @@ class FastPixPlayer private constructor(
      */
     private fun attachPlayerListener() {
         if (!isListenerAttached) {
-            // Defensively remove listener first (safe to call even if not attached)
             exoPlayer.removeListener(playerListener)
-            // Now add the listener
+            exoPlayer.removeAnalyticsListener(formatAnalyticsListener)
             exoPlayer.addListener(playerListener)
+            exoPlayer.addAnalyticsListener(formatAnalyticsListener)
             isListenerAttached = true
         }
     }
@@ -773,6 +944,7 @@ class FastPixPlayer private constructor(
     private fun detachPlayerListener() {
         if (isListenerAttached) {
             exoPlayer.removeListener(playerListener)
+            exoPlayer.removeAnalyticsListener(formatAnalyticsListener)
             isListenerAttached = false
         }
     }
@@ -887,17 +1059,19 @@ class FastPixPlayer private constructor(
             val currentMediaItem = exoPlayer.currentMediaItem
             if (currentMediaItem != null) {
                 val currentMediaId = currentMediaItem.mediaId
-                val currentUri = currentMediaItem.requestMetadata.mediaUri
+                val currentUri = currentMediaItem.localConfiguration?.uri
+                val currentDrm = currentMediaItem.localConfiguration?.drmConfiguration
                 val newMediaId = mediaItem.mediaId
-                val newUri = mediaItem.requestMetadata.mediaUri
+                val newUri = mediaItem.localConfiguration?.uri
+                val newDrm = mediaItem.localConfiguration?.drmConfiguration
 
-                // Compare media ID and URI (handle null cases)
-                val mediaIdMatches = (currentMediaId == null && newMediaId == null) ||
-                        (currentMediaId != null && currentMediaId == newMediaId)
+                // Compare media ID and URI.
+                val mediaIdMatches = currentMediaId == newMediaId
                 val uriMatches = (currentUri == null && newUri == null) ||
                         (currentUri != null && currentUri == newUri)
+                val drmMatches = currentDrm == newDrm
 
-                if (mediaIdMatches && uriMatches) {
+                if (mediaIdMatches && uriMatches && drmMatches) {
                     // Same media item already set - don't reset playback state
                     return
                 }
@@ -909,6 +1083,8 @@ class FastPixPlayer private constructor(
         firstTracksForCurrentMedia = true
         pendingAudioTrackId = null
         pendingSubtitleTrackId = null
+        pendingVideoTrackId = null
+        lastNotifiedVideoQuality = null
         trackManager.resetSelectionStateForNewMedia()
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
@@ -935,9 +1111,13 @@ class FastPixPlayer private constructor(
             for (i in mediaItems.indices) {
                 val currentItem = exoPlayer.getMediaItemAt(i)
                 val newItem = mediaItems[i]
-                if (currentItem.mediaId != newItem.mediaId ||
-                    currentItem.requestMetadata.mediaUri != newItem.requestMetadata.mediaUri
-                ) {
+                val mediaIdMatches = currentItem.mediaId == newItem.mediaId
+                val uriMatches =
+                    currentItem.localConfiguration?.uri == newItem.localConfiguration?.uri
+                val drmMatches =
+                    currentItem.localConfiguration?.drmConfiguration ==
+                            newItem.localConfiguration?.drmConfiguration
+                if (!mediaIdMatches || !uriMatches || !drmMatches) {
                     allMatch = false
                     break
                 }
@@ -954,6 +1134,8 @@ class FastPixPlayer private constructor(
         firstTracksForCurrentMedia = true
         pendingAudioTrackId = null
         pendingSubtitleTrackId = null
+        pendingVideoTrackId = null
+        lastNotifiedVideoQuality = null
         trackManager.resetSelectionStateForNewMedia()
         exoPlayer.setMediaItems(mediaItems, startIndex, startPositionMs)
         exoPlayer.prepare()
@@ -1381,7 +1563,14 @@ class FastPixPlayer private constructor(
         stopTimeUpdates()
         stopVolumeMonitoring()
         completeSeekIfInProgress()
+        // Tear down ABR pipeline in reverse order (controller removes its listener from the
+        // monitor before we unregister the OS callback).
+        stallWatchdog.detach()
+        abrController.detach()
+        networkMonitor.unregister()
         pendingAudioTrackId = null
+        pendingSubtitleTrackId = null
+        pendingVideoTrackId = null
         analyticsManager?.release()
         analyticsManager = null
         seekPreviewManager?.release()
@@ -1440,11 +1629,13 @@ class FastPixPlayer private constructor(
                     it.onAudioTracksLoadedFailed(AudioTrackError.TrackNotFound(trackId))
                 }
             }
+
             !track.isPlayable -> {
                 audioTrackListeners.forEach {
                     it.onAudioTracksLoadedFailed(AudioTrackError.TrackNotPlayable(trackId))
                 }
             }
+
             else -> {
                 audioTrackListeners.forEach { it.onAudioTrackSwitching(true) }
                 val applied = mediaSelectionController.setAudioTrack(trackId)
@@ -1495,6 +1686,15 @@ class FastPixPlayer private constructor(
         setSubtitleTrack(trackId)
     }
 
+    /**
+     * Applies a pending video quality switch that was deferred during seek. Call on main thread.
+     */
+    private fun applyPendingVideoTrackSwitch() {
+        val trackId = pendingVideoTrackId ?: return
+        pendingVideoTrackId = null
+        setVideoQuality(trackId)
+    }
+
     // --------------- Subtitle track API ---------------
 
     /**
@@ -1543,11 +1743,13 @@ class FastPixPlayer private constructor(
                     it.onSubtitlesLoadedFailed(SubtitleTrackError.TrackNotFound(trackId))
                 }
             }
+
             !track.isPlayable -> {
                 subtitleTrackListeners.forEach {
                     it.onSubtitlesLoadedFailed(SubtitleTrackError.TrackNotPlayable(trackId))
                 }
             }
+
             else -> {
                 val applied = mediaSelectionController.setSubtitleTrack(trackId)
                 if (applied != null) {
@@ -1555,7 +1757,12 @@ class FastPixPlayer private constructor(
                     subtitleTrackListeners.forEach { it.onSubtitleChange(applied) }
                 } else {
                     subtitleTrackListeners.forEach {
-                        it.onSubtitlesLoadedFailed(SubtitleTrackError.SelectionFailed(trackId, null))
+                        it.onSubtitlesLoadedFailed(
+                            SubtitleTrackError.SelectionFailed(
+                                trackId,
+                                null
+                            )
+                        )
                     }
                 }
             }
@@ -1574,6 +1781,78 @@ class FastPixPlayer private constructor(
         mediaSelectionController.disableSubtitles()
         trackManager.markSubtitlesDisabledByUser()
         subtitleTrackListeners.forEach { it.onSubtitleChange(null) }
+    }
+
+    // --------------- Video quality API ---------------
+
+    /**
+     * Returns all available video qualities for the currently loaded media.
+     * Empty if no media is loaded or no video tracks are present.
+     */
+    fun getVideoQualities(): List<VideoTrack> {
+        return trackManager.getVideoTracks()
+    }
+
+    /**
+     * Returns the current video quality. In AUTO mode this reflects the currently selected rendition.
+     */
+    fun getCurrentVideoQuality(): VideoTrack? {
+        return trackManager.getCurrentVideoTrack()
+    }
+
+    /**
+     * Switches playback to a specific fixed video quality.
+     * Does not recreate player, reload media, or reset playback position.
+     *
+     * If a seek is in progress, the switch is deferred until seek completion.
+     */
+    fun setVideoQuality(trackId: String) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            timeUpdateHandler.post { setVideoQuality(trackId) }
+            return
+        }
+        if (isSeeking) {
+            pendingVideoTrackId = trackId
+            return
+        }
+        if (exoPlayer.mediaItemCount == 0) return
+        val applied = mediaSelectionController.setVideoTrack(trackId)
+        if (applied != null) {
+            trackManager.markVideoManuallySelected(trackId)
+            notifyVideoQualityChangedIfNeeded(PlaybackListener.VideoQualityChangeSource.MANUAL)
+        }
+    }
+
+    /**
+     * Re-enables automatic video quality (ABR) by clearing manual overrides.
+     */
+    fun enableAutoQuality() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            timeUpdateHandler.post { enableAutoQuality() }
+            return
+        }
+        pendingVideoTrackId = null
+        mediaSelectionController.enableAutoVideoQuality()
+        trackManager.markVideoAutoEnabled()
+        notifyVideoQualityChangedIfNeeded(PlaybackListener.VideoQualityChangeSource.MANUAL)
+    }
+
+    private fun pollVideoQualityChange() {
+        val format = exoPlayer.videoFormat ?: return
+        val w = format.width.takeIf { it != Format.NO_VALUE } ?: return
+        val h = format.height.takeIf { it != Format.NO_VALUE } ?: return
+        trackManager.updateRenderedVideoSize(w, h)
+        notifyVideoQualityChangedIfNeeded(PlaybackListener.VideoQualityChangeSource.ABR)
+    }
+
+    private fun notifyVideoQualityChangedIfNeeded(
+        source: PlaybackListener.VideoQualityChangeSource
+    ) {
+        val current = trackManager.getCurrentVideoTrack()
+        val changed = current != lastNotifiedVideoQuality
+        if (!changed) return
+        lastNotifiedVideoQuality = current
+        playbackListeners.forEach { it.onVideoQualityChanged(current, source) }
     }
 
     // --------------- Default track language API ---------------
@@ -1630,6 +1909,7 @@ class FastPixPlayer private constructor(
                     }
                 }
             }
+
             TrackManager.AutoSelectionAction.DisableSubtitles,
             TrackManager.AutoSelectionAction.NoOp -> Unit
         }
@@ -1637,7 +1917,8 @@ class FastPixPlayer private constructor(
         when (val subAction = trackManager.decideAutoSubtitleSelection()) {
             is TrackManager.AutoSelectionAction.SelectTrack -> {
                 val current = trackManager.getCurrentSubtitleTrack()
-                val currentlyDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+                val currentlyDisabled =
+                    exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
                 if (current?.id != subAction.trackId || currentlyDisabled) {
                     val applied = mediaSelectionController.setSubtitleTrack(subAction.trackId)
                     if (applied != null) {
@@ -1647,9 +1928,11 @@ class FastPixPlayer private constructor(
                     }
                 }
             }
+
             TrackManager.AutoSelectionAction.DisableSubtitles -> {
                 // Only auto-disable when user has NOT explicitly disabled; TrackManager encodes that.
-                val currentlyDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+                val currentlyDisabled =
+                    exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
                 // Avoid firing "Subtitle: Off" updates when subtitles are already effectively off.
                 // We only need to disable when a subtitle track is actually selected (e.g., default-selected by stream).
                 val current = trackManager.getCurrentSubtitleTrack()
@@ -1659,6 +1942,7 @@ class FastPixPlayer private constructor(
                     subtitleTrackListeners.forEach { it.onSubtitleChange(null) }
                 }
             }
+
             TrackManager.AutoSelectionAction.NoOp -> Unit
         }
 

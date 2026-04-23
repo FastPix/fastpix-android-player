@@ -31,6 +31,7 @@ internal class TrackManager {
 
     private val audioEntries: MutableList<PlayerTrack> = mutableListOf()
     private val subtitleEntries: MutableList<PlayerTrack> = mutableListOf()
+    private val videoEntries: MutableList<PlayerTrack> = mutableListOf()
 
     private var defaultAudioLanguage: String? = null
     private var defaultSubtitleLanguage: String? = null
@@ -38,6 +39,10 @@ internal class TrackManager {
     private var isAudioManuallySelected: Boolean = false
     private var isSubtitleManuallySelected: Boolean = false
     private var subtitlesDisabledByUser: Boolean = false
+    private var isVideoAuto: Boolean = true
+    private var selectedVideoTrackId: String? = null
+    private var renderedVideoWidth: Int = 0
+    private var renderedVideoHeight: Int = 0
 
     fun setDefaultAudioTrack(languageCode: String) {
         defaultAudioLanguage = languageCode
@@ -65,6 +70,10 @@ internal class TrackManager {
         isAudioManuallySelected = false
         isSubtitleManuallySelected = false
         subtitlesDisabledByUser = false
+        isVideoAuto = true
+        selectedVideoTrackId = null
+        renderedVideoWidth = 0
+        renderedVideoHeight = 0
     }
 
     fun areSubtitlesDisabledByUser(): Boolean = subtitlesDisabledByUser
@@ -133,6 +142,7 @@ internal class TrackManager {
     fun updateTracks(tracks: Tracks) {
         val rawAudio = mutableListOf<PlayerTrack>()
         subtitleEntries.clear()
+        videoEntries.clear()
         val groups = tracks.groups
         for (groupIndex in groups.indices) {
             val group = groups[groupIndex]
@@ -185,11 +195,45 @@ internal class TrackManager {
                         )
                     }
                 }
-                else -> { /* VIDEO or other: ignore for now */ }
+                C.TRACK_TYPE_VIDEO -> {
+                    for (trackIndex in 0 until group.length) {
+                        val format = group.getTrackFormat(trackIndex)
+                        val isSelected = group.isTrackSelected(trackIndex)
+                        val bitrateOrNull =
+                            if (format.bitrate != Format.NO_VALUE) format.bitrate else null
+                        val widthOrNull = if (format.width != Format.NO_VALUE) format.width else null
+                        val heightOrNull =
+                            if (format.height != Format.NO_VALUE) format.height else null
+                        val id = "$groupIndex-$trackIndex"
+                        videoEntries.add(
+                            PlayerTrack(
+                                id = id,
+                                type = TrackType.VIDEO,
+                                languageCode = null,
+                                languageName = null,
+                                label = resolveVideoLabel(format.label, heightOrNull),
+                                isSelected = isSelected,
+                                isPlayable = group.isTrackSupported(trackIndex),
+                                isDefault = false,
+                                isForced = false,
+                                role = null,
+                                codec = format.sampleMimeType?.takeIf { it.isNotBlank() },
+                                groupId = group.mediaTrackGroup.id ?: "g$groupIndex",
+                                groupIndex = groupIndex,
+                                trackIndex = trackIndex,
+                                width = widthOrNull,
+                                height = heightOrNull,
+                                bitrate = bitrateOrNull
+                            )
+                        )
+                    }
+                }
+                else -> Unit
             }
         }
         audioEntries.clear()
         audioEntries.addAll(deduplicateAudioByLogicalName(rawAudio))
+        syncVideoSelectionState()
     }
 
     internal sealed class AutoSelectionAction {
@@ -256,6 +300,14 @@ internal class TrackManager {
     fun getSubtitleTracks(): List<SubtitleTrack> =
         subtitleEntries.map { playerTrackToSubtitleTrack(it) }
 
+    fun getVideoTracks(): List<VideoTrack> =
+        videoEntries
+            .sortedWith(
+                compareByDescending<PlayerTrack> { it.height ?: -1 }
+                    .thenByDescending { it.bitrate ?: -1 }
+            )
+            .map { playerTrackToVideoTrack(it) }
+
     fun getCurrentAudioTrack(): AudioTrack? =
         audioEntries.firstOrNull { it.isSelected }?.let { playerTrackToAudioTrack(it) }
 
@@ -265,11 +317,35 @@ internal class TrackManager {
     fun getCurrentSubtitleTrack(): SubtitleTrack? =
         subtitleEntries.firstOrNull { it.isSelected }?.let { playerTrackToSubtitleTrack(it) }
 
+    fun getCurrentVideoTrack(): VideoTrack? {
+        if (!isVideoAuto && !selectedVideoTrackId.isNullOrBlank()) {
+            val manual = videoEntries.firstOrNull { it.id == selectedVideoTrackId }
+            return manual?.let { playerTrackToVideoTrack(it) }
+        }
+        // Auto (ABR) mode: match by actual rendered resolution reported by the decoder.
+        if (renderedVideoHeight > 0 && videoEntries.isNotEmpty()) {
+            val exact = videoEntries.firstOrNull {
+                it.width == renderedVideoWidth && it.height == renderedVideoHeight
+            }
+            if (exact != null) return playerTrackToVideoTrack(exact)
+            val byHeight = videoEntries.firstOrNull { it.height == renderedVideoHeight }
+            if (byHeight != null) return playerTrackToVideoTrack(byHeight)
+            val closest = videoEntries.minByOrNull {
+                kotlin.math.abs((it.height ?: 0) - renderedVideoHeight)
+            }
+            if (closest != null) return playerTrackToVideoTrack(closest)
+        }
+        return videoEntries.firstOrNull { it.isSelected }?.let { playerTrackToVideoTrack(it) }
+    }
+
     fun findAudioTrackById(trackId: String): AudioTrack? =
         audioEntries.firstOrNull { it.id == trackId }?.let { playerTrackToAudioTrack(it) }
 
     fun findSubtitleTrackById(trackId: String): SubtitleTrack? =
         subtitleEntries.firstOrNull { it.id == trackId }?.let { playerTrackToSubtitleTrack(it) }
+
+    fun findVideoTrackById(trackId: String): VideoTrack? =
+        videoEntries.firstOrNull { it.id == trackId }?.let { playerTrackToVideoTrack(it) }
 
     /**
      * Returns selection indices for the given audio [trackId]. For use by [MediaSelectionController].
@@ -285,6 +361,26 @@ internal class TrackManager {
     fun findSubtitleSelectionIndices(trackId: String): TrackSelectionIndices? {
         val t = subtitleEntries.firstOrNull { it.id == trackId } ?: return null
         return TrackSelectionIndices(t.groupIndex, t.trackIndex)
+    }
+
+    fun findVideoSelectionIndices(trackId: String): TrackSelectionIndices? {
+        val t = videoEntries.firstOrNull { it.id == trackId } ?: return null
+        return TrackSelectionIndices(t.groupIndex, t.trackIndex)
+    }
+
+    fun updateRenderedVideoSize(width: Int, height: Int) {
+        renderedVideoWidth = width
+        renderedVideoHeight = height
+    }
+
+    fun markVideoManuallySelected(trackId: String) {
+        isVideoAuto = false
+        selectedVideoTrackId = trackId
+    }
+
+    fun markVideoAutoEnabled() {
+        isVideoAuto = true
+        selectedVideoTrackId = null
     }
 
     private fun formatToPlayerTrack(
@@ -356,6 +452,38 @@ internal class TrackManager {
         codec = t.codec,
         groupId = t.groupId
     )
+
+    private fun playerTrackToVideoTrack(t: PlayerTrack): VideoTrack = VideoTrack(
+        id = t.id,
+        width = t.width,
+        height = t.height,
+        bitrate = t.bitrate,
+        label = resolveVideoLabel(t.label, t.height),
+        isSelected = t.isSelected || (!isVideoAuto && selectedVideoTrackId == t.id),
+        isAuto = isVideoAuto
+    )
+
+    private fun resolveVideoLabel(label: String?, height: Int?): String? {
+        return when {
+            !label.isNullOrBlank() -> label
+            height != null && height > 0 -> "${height}p"
+            else -> null
+        }
+    }
+
+    private fun syncVideoSelectionState() {
+        if (videoEntries.isEmpty()) {
+            selectedVideoTrackId = null
+            isVideoAuto = true
+            return
+        }
+        if (!isVideoAuto && !selectedVideoTrackId.isNullOrBlank()) {
+            val stillExists = videoEntries.any { it.id == selectedVideoTrackId }
+            if (!stillExists) {
+                markVideoAutoEnabled()
+            }
+        }
+    }
 
     private fun formatRoleFlags(roleFlags: Int): String? {
         if (roleFlags == 0) return null

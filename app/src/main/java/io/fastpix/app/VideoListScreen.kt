@@ -19,6 +19,7 @@ class VideoListScreen : AppCompatActivity() {
 
     private var selectedDefaultAudio: String = AUDIO_DEFAULT_NONE
     private var selectedDefaultSubtitle: String = SUBTITLE_DEFAULT_OFF
+    private val token = "playback_token"
 
     @UnstableApi
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,6 +40,9 @@ class VideoListScreen : AppCompatActivity() {
             intent.putExtra(LOOP, binding.sLoop.isChecked)
             intent.putExtra(DEFAULT_AUDIO_NAME, selectedDefaultAudio)
             intent.putExtra(DEFAULT_SUBTITLE_NAME, selectedDefaultSubtitle)
+            if (video?.id?.contains("DRM") == true) {
+                intent.putExtra(TOKEN, token)
+            }
             startActivity(intent)
         }
 
@@ -100,6 +104,7 @@ class VideoListScreen : AppCompatActivity() {
         const val LOOP = "loop"
         const val DEFAULT_AUDIO_NAME = "default_audio_name"
         const val DEFAULT_SUBTITLE_NAME = "default_subtitle_name"
+        const val TOKEN = "token"
 
         private const val AUDIO_DEFAULT_NONE = "Auto"
         private const val SUBTITLE_DEFAULT_OFF = "Off"

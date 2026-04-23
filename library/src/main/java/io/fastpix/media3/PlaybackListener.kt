@@ -2,6 +2,7 @@ package io.fastpix.media3
 
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
+import io.fastpix.media3.tracks.VideoTrack
 
 /**
  * Listener interface for playback events from [io.fastpix.media3.core.FastPixPlayer].
@@ -47,6 +48,10 @@ import androidx.media3.common.PlaybackException
  * @see PlayerView
  */
 interface PlaybackListener {
+    enum class VideoQualityChangeSource {
+        MANUAL,
+        ABR
+    }
     /**
      * Called when playback starts or resumes.
      */
@@ -194,6 +199,23 @@ interface PlaybackListener {
     fun onMuteStateChanged(isMuted: Boolean) {}
 
     fun onPlaybackRateChanged(rate: Float) {}
+
+    /**
+     * Called when active video quality information changes.
+     *
+     * Triggered for:
+     * - Manual quality changes (`setVideoQuality` / `enableAutoQuality`)
+     * - ABR-driven rendition switches while auto mode is enabled
+     *
+     * @param quality The current quality after the change, or null if unavailable.
+     * @param source Whether this came from manual selection or ABR.
+     */
+    fun onVideoQualityChanged(
+        quality: VideoTrack?,
+        source: VideoQualityChangeSource
+    ) {
+        // Default empty implementation - optional to override
+    }
 
     /**
      * Called when video playback completes (reaches the end).

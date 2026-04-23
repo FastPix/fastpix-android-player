@@ -5,7 +5,9 @@ package io.fastpix.media3.tracks
  * Used by [TrackManager] to represent both audio and subtitle tracks;
  * mapped to [AudioTrack] or [SubtitleTrack] before returning to API consumers.
  *
- * Optional [channels] and [bitrate] are set only for audio tracks (from Format).
+ * Optional [channels] is set for audio tracks (from Format.channelCount).
+ * Optional [width]/[height] are set for video tracks (from Format.width/height).
+ * Optional [bitrate] can be set for audio/video tracks (from Format.bitrate).
  */
 internal data class PlayerTrack(
     val id: String,
@@ -29,6 +31,10 @@ internal data class PlayerTrack(
 
     /** Only for [TrackType.AUDIO]; from Format.channelCount. */
     val channels: String? = null,
-    /** Only for [TrackType.AUDIO]; from Format.bitrate. */
+    /** Only for [TrackType.VIDEO]; from Format.width. */
+    val width: Int? = null,
+    /** Only for [TrackType.VIDEO]; from Format.height. */
+    val height: Int? = null,
+    /** For [TrackType.AUDIO] and [TrackType.VIDEO]; from Format.bitrate. */
     val bitrate: Int? = null
 )

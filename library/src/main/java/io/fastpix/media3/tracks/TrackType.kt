@@ -6,5 +6,6 @@ package io.fastpix.media3.tracks
  */
 internal enum class TrackType {
     AUDIO,
-    SUBTITLE
+    SUBTITLE,
+    VIDEO
 }

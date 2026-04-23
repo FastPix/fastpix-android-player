@@ -27,8 +27,10 @@
 
         <activity
             android:name=".ComposePlayerActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize" />
+            android:exported="true"
+            android:configChanges="orientation|screenSize">
+
+        </activity>
 
     </application>
 

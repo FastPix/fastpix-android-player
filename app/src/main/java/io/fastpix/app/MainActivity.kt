@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.database.ContentObserver
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -25,9 +26,9 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import io.fastpix.app.databinding.ActivityMainBinding
-import io.fastpix.data.domain.model.VideoDataDetails
 import io.fastpix.media3.PlaybackListener
-import io.fastpix.media3.analytics.AnalyticsConfig
+import io.fastpix.media3.abr.AbrConfig
+import io.fastpix.media3.core.DrmConfig
 import io.fastpix.media3.core.FastPixPlayer
 import io.fastpix.media3.core.StreamType
 import io.fastpix.media3.seekpreview.listeners.SeekPreviewListener
@@ -42,6 +43,7 @@ import io.fastpix.media3.tracks.SubtitleRenderInfo
 import io.fastpix.media3.tracks.SubtitleTrack
 import io.fastpix.media3.tracks.SubtitleTrackError
 import io.fastpix.media3.tracks.SubtitleTrackListener
+import io.fastpix.media3.tracks.VideoTrack
 
 
 /**
@@ -180,6 +182,24 @@ class MainActivity : AppCompatActivity() {
             updateVolumeIcon(isMute)
         }
 
+        override fun onVideoQualityChanged(
+            quality: VideoTrack?,
+            source: PlaybackListener.VideoQualityChangeSource
+        ) {
+            val qualityLabel = quality?.label
+                ?: quality?.height?.let { "${it}p" }
+                ?: quality?.id
+                ?: "Unknown"
+            Log.d(
+                TAG,
+                "Video quality changed: $qualityLabel, auto=${quality?.isAuto == true}, source=$source"
+            )
+            // Live-update the "Auto • <quality>" label if the popup is currently open.
+            // Setting MenuItem.title propagates through MenuBuilder.onItemsChanged and the
+            // PopupMenu's list adapter re-renders the visible row.
+            visibleAutoQualityMenuItem?.title = buildAutoMenuLabel(quality)
+        }
+
         override fun onPlayerReady(durationMs: Long) {
             super.onPlayerReady(durationMs)
             binding.playerControls.isVisible = true
@@ -222,6 +242,7 @@ class MainActivity : AppCompatActivity() {
             reason: AudioTrackUpdateReason
         ) {
             binding.ivAudioTracks.isVisible = tracks.isNotEmpty()
+            binding.ivVideoQuality.isVisible = fastPixPlayer.getVideoQualities().isNotEmpty()
             Log.d(TAG, "Audio tracks loaded: ${tracks.size} tracks, reason=$reason")
         }
 
@@ -260,6 +281,7 @@ class MainActivity : AppCompatActivity() {
     private val subtitleTrackListener = object : SubtitleTrackListener {
         override fun onSubtitlesLoaded(tracks: List<SubtitleTrack>) {
             binding.ivSubtitles.isVisible = tracks.isNotEmpty()
+            binding.ivVideoQuality.isVisible = fastPixPlayer.getVideoQualities().isNotEmpty()
             Log.d(TAG, "Subtitle tracks loaded: ${tracks.size} tracks")
         }
 
@@ -307,6 +329,14 @@ class MainActivity : AppCompatActivity() {
     private var autoRotateObserver: ContentObserver? = null
     private var defaultAudioName: String? = null
     private var defaultSubtitleName: String? = null
+    private var token: String? = null
+
+    /**
+     * Reference to the "Auto" menu item in the currently-visible video-quality popup. Held only
+     * while the popup is shown so we can retitle it in real-time when ABR picks a new rendition.
+     * Cleared in the popup's onDismiss listener.
+     */
+    private var visibleAutoQualityMenuItem: MenuItem? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -329,6 +359,7 @@ class MainActivity : AppCompatActivity() {
         isLoopEnabled = intent.getBooleanExtra(VideoListScreen.LOOP, false)
         defaultAudioName = intent.getStringExtra(VideoListScreen.DEFAULT_AUDIO_NAME)
         defaultSubtitleName = intent.getStringExtra(VideoListScreen.DEFAULT_SUBTITLE_NAME)
+        token = intent.getStringExtra(VideoListScreen.TOKEN)
 
         // Lock to portrait initially when auto-rotate is off
         if (!isAutoRotateEnabled()) {
@@ -355,13 +386,7 @@ class MainActivity : AppCompatActivity() {
         fastPixPlayer = FastPixPlayer.Builder(this)
             .setLoop(isLoopEnabled)
             .setAutoplay(isAutoPlayEnabled)
-            .setAnalyticsConfig(
-                AnalyticsConfig.Builder(
-                    binding.playerView,
-                    "work-space-key"
-                )
-                    .setVideoDataDetails(VideoDataDetails("video-id", "video-title")).build()
-            )
+            .setAbrConfig(AbrConfig(enableAbrDiagnosticLogging = true))
             .setSeekPreviewConfig(
                 SeekPreviewConfig.Builder()
                     .setEnabled(true)
@@ -393,22 +418,25 @@ class MainActivity : AppCompatActivity() {
      * Called after the player is initialized.
      */
     private fun setupMediaItem() {
+        /*val playbackId = "1e7f733b-4953-4013-97bb-4ec6cca6c5fb"
+        val playbackToken =
+            "eyJhbGciOiJSUzI1NiJ9.eyJraWQiOiIyNTlmNGEwZC0yOWUwLTQzNTEtYmE0MC1lOGNjZjlmODFhMzQiLCJhdWQiOiJkcm06MWU3ZjczM2ItNDk1My00MDEzLTk3YmItNGVjNmNjYTZjNWZiIiwiaXNzIjoiZmFzdHBpeC5pbyIsInN1YiI6IiIsImlhdCI6MTc3NjA2NDA3MSwiZXhwIjoxNzc2MTUwNDcxfQ.k_nwbgceveD6Az1xPPJ2ojpXdIrRFSDQasSl73xS3vwIX7-HCPl2Uu4noJWhknnW4ZhpJ_NP-PaeXz_SAsqHr_gdtjnKEVoQIjDF1KbPOFrP2T6DLq7wpNkHmX_VFfZBp3D5DmoR7rqTKHDiDccQLy9SbGRem2fNg7RV4c6GFcurEGa7un5thgv8UsfsEaLuEm78iwisDRvWkQr2wWKpPpdWeWCIl60Z9HXUt5wCngMG6X2MKXtS3eNLk-59VK5BGJ5VWGcfH1ywVHojiE9CcdbxI7OrmpiZC3VX_z7RtgjJgQITTXLJvy3338ggVMVlwkVP4FMfcxnjtMGk0_sAGA"
+        val streamType = StreamType.onDemand
+        val drmLicenseUrl =
+            "https://api.fastpix.co/v1/${streamType.stream}/drm/license/widevine/$playbackId?token=$playbackToken"*/
 
         // Use builder pattern to create and set FastPix MediaItem from playback ID
         var playbackUrl = videoModel?.url
-        if (playbackUrl.isNullOrEmpty()) {
-            // Use the builder pattern to configure FastPix media item
-            val success = fastPixPlayer.setFastPixMediaItem {
-                playbackId = "66ee6d27-e1c0-4d15-99b2-153e26389c90"
-                streamType = StreamType.onDemand
-                // Optional: You can configure resolution, token, etc. here
-                // maxResolution = PlaybackResolution.FHD_1080
-                // playbackToken = "your-token-here"
-            }
-            if (!success) {
-                // Fallback to direct URL if FastPix media item creation fails
-                val mediaItem = MediaItem.fromUri(videoModel?.url.orEmpty())
-                binding.playerView.setMediaItem(mediaItem)
+        val playbackUri = Uri.parse(playbackUrl)
+        val playbackId = playbackUri.lastPathSegment?.substringBefore(".m3u8").orEmpty()
+        if (playbackId.isNotEmpty()) {
+            fastPixPlayer.setFastPixMediaItem {
+                this.playbackId = playbackId
+                this.streamType = StreamType.onDemand
+                this.playbackToken = token
+                this.customDomain = if(token!=null) "stream.fastpix.co" else "stream.fastpix.io"
+                if (token != null)
+                    this.drmConfig = DrmConfig()
             }
         } else {
             // Fallback to direct URL if no playback ID is available
@@ -533,6 +561,10 @@ class MainActivity : AppCompatActivity() {
 
         binding.ivSubtitles.setOnClickListener {
             showSubtitleTrackMenu(it)
+        }
+
+        binding.ivVideoQuality.setOnClickListener {
+            showVideoQualityMenu(it)
         }
 
         binding.sbProgress.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -871,6 +903,89 @@ class MainActivity : AppCompatActivity() {
             true
         }
         popupMenu.show()
+    }
+
+    /**
+     * Shows a popup menu with "Auto" and available video qualities. Current quality is checked.
+     * Calls [FastPixPlayer.setVideoQuality] or [FastPixPlayer.enableAutoQuality] on selection.
+     *
+     * Usage example for video quality APIs:
+     * - [FastPixPlayer.getVideoQualities]
+     * - [FastPixPlayer.getCurrentVideoQuality]
+     * - [FastPixPlayer.setVideoQuality]
+     * - [FastPixPlayer.enableAutoQuality]
+     */
+    private fun showVideoQualityMenu(anchorView: View) {
+        val tracks = fastPixPlayer.getVideoQualities()
+        val current = fastPixPlayer.getCurrentVideoQuality()
+        val popupMenu = PopupMenu(this, anchorView)
+
+        // Auto (ABR) option. When Auto is active, suffix the actively-rendered rendition so
+        // the user can tell what ABR is picking right now (e.g. "Auto • 720p"). The suffix
+        // stays live — [onVideoQualityChanged] retitles this item while the popup is visible.
+        val autoItem = popupMenu.menu.add(0, -1, 0, buildAutoMenuLabel(current))
+        if (current?.isAuto == true) {
+            autoItem.isChecked = true
+        }
+        visibleAutoQualityMenuItem = autoItem
+        popupMenu.setOnDismissListener { visibleAutoQualityMenuItem = null }
+
+        tracks.forEachIndexed { index, track ->
+            val label = formatVideoQualityLabel(track, index)
+            popupMenu.menu.add(0, index, index + 1, label)
+            if (track.id == current?.id && current?.isAuto == false) {
+                popupMenu.menu.getItem(index + 1).isChecked = true
+            }
+        }
+
+        popupMenu.menu.setGroupCheckable(0, true, true)
+        popupMenu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                -1 -> {
+                    fastPixPlayer.enableAutoQuality()
+                    Toast.makeText(this, "Quality: Auto", Toast.LENGTH_SHORT).show()
+                }
+
+                else -> if (item.itemId in tracks.indices) {
+                    val selected = tracks[item.itemId]
+                    fastPixPlayer.setVideoQuality(selected.id)
+                    Toast.makeText(
+                        this,
+                        "Quality: ${formatVideoQualityLabel(selected, item.itemId)}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            true
+        }
+        popupMenu.show()
+    }
+
+    /**
+     * Builds the "Auto" entry's label. When the player is in Auto mode and has a current
+     * rendition, suffixes the actively-rendered label (e.g. "Auto  •  720p") so the user can
+     * see what ABR is picking right now. Falls back to plain "Auto" otherwise.
+     */
+    private fun buildAutoMenuLabel(current: VideoTrack?): String {
+        if (current?.isAuto != true) return "Auto"
+        val suffix = current.label?.takeIf { it.isNotBlank() }
+            ?: current.height?.takeIf { it > 0 }?.let { "${it}p" }
+            ?: return "Auto"
+        return "Auto  •  $suffix"
+    }
+
+    private fun formatVideoQualityLabel(track: VideoTrack, fallbackIndex: Int): String {
+        val resolution = when {
+            !track.label.isNullOrBlank() -> track.label
+            track.height != null -> "${track.height}p"
+            track.width != null && track.height != null -> "${track.width}x${track.height}"
+            else -> "Quality ${fallbackIndex + 1}"
+        }
+        val bitrateLabel = track.bitrate
+            ?.takeIf { it > 0 }
+            ?.let { " (${String.format("%.1f", it / 1_000_000f)} Mbps)" }
+            .orEmpty()
+        return resolution + bitrateLabel
     }
 
     /**

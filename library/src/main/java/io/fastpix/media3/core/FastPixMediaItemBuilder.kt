@@ -54,6 +54,14 @@ class FastPixMediaItemBuilder {
      * Optional playback token for secure playback.
      */
     var playbackToken: String? = null
+
+    /**
+     * Optional explicit DRM configuration.
+     *
+     * DRM is configured only through this object.
+     * This allows dynamic license URLs/headers without exposing Media3 APIs.
+     */
+    var drmConfig: DrmConfig? = null
 }
 
 /**
@@ -88,7 +96,7 @@ enum class RenditionOrder {
 }
 
 
-enum class StreamType {
-    onDemand,
-    live
+enum class StreamType(val stream: String) {
+    onDemand("on-demand"),
+    live("live")
 }
