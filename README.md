@@ -20,7 +20,9 @@ A clean, modern Android video player SDK built on top of [AndroidX Media3 (ExoPl
 - **AutoPlay** – Automatic playback start when media is ready (configurable)
 - **Loop Playback** – Seamless looping functionality for continuous playback
 - **Playback Rate Control** – Adjustable playback speed from 0.25x to 2.0x with multiple speed options
+- **Video Quality Switching** – Get available video renditions, lock a specific quality, or return to ABR auto mode
 - **Subtitle and Audio Track Switching** – Discover and switch audio/subtitle tracks, set default languages, disable subtitles, and render subtitle cues via listeners
+- **Widevine DRM Playback** – Configure secure playback with `playbackToken` + `DrmConfig` for FastPix protected streams
 
 ---
 
@@ -917,6 +919,118 @@ private fun showPlaybackSpeedMenu() {
 - **Automatic Speed Adjustment**: If an exact speed is not available, the SDK automatically selects the closest available speed
 - **State Preservation**: Playback speed is preserved across configuration changes
 - **Pitch Preservation**: Audio pitch remains normal at all speeds (no chipmunk effect)
+
+---
+
+## Video Quality Switching
+
+Use these APIs when you want users to pick a fixed quality (for example, `1080p`) or switch back to adaptive bitrate (ABR) auto mode.
+
+These APIs are available on `FastPixPlayer`.
+
+### Get available and current video qualities
+
+```kotlin
+val player = binding.playerView.player as? FastPixPlayer ?: return
+
+// All available video quality tracks for current media
+val qualities: List<VideoTrack> = player.getVideoQualities()
+
+// Current active quality (in auto mode this reflects currently rendered quality)
+val current: VideoTrack? = player.getCurrentVideoQuality()
+```
+
+`VideoTrack` exposes: `id`, `width`, `height`, `bitrate`, `label`, `isSelected`, and `isAuto`.
+
+### Switch to a fixed quality
+
+```kotlin
+// Pick a quality id from getVideoQualities()
+player.setVideoQuality(trackId)
+```
+
+### Switch back to auto (ABR)
+
+```kotlin
+player.enableAutoQuality()
+```
+
+### Listen for quality changes
+
+```kotlin
+player.addPlaybackListener(object : PlaybackListener {
+    override fun onVideoQualityChanged(
+        quality: VideoTrack?,
+        source: PlaybackListener.VideoQualityChangeSource
+    ) {
+        // source = MANUAL when you call setVideoQuality/enableAutoQuality
+        // source = ABR when SDK switches rendition automatically
+        updateQualityUi(quality, source)
+    }
+
+    override fun onPlay() {}
+    override fun onPause() {}
+    override fun onPlaybackStateChanged(isPlaying: Boolean) {}
+    override fun onError(error: PlaybackException) {}
+})
+```
+
+Notes:
+- Quality switching does not recreate the player or reset playback position.
+- If a seek is in progress, quality change is safely applied after seek completes.
+- Keep an `"Auto"` option in your quality menu that calls `enableAutoQuality()`.
+
+---
+
+## DRM (Widevine) Playback
+
+For protected FastPix streams, provide both:
+- `playbackToken` (required for secure playback)
+- `drmConfig` (enables DRM configuration on the media item)
+
+If `playbackToken` is set but `drmConfig` is not provided, playback emits a DRM configuration error through `PlaybackListener.onError`.
+
+### Basic DRM setup
+
+```kotlin
+import io.fastpix.media3.core.DrmConfig
+import io.fastpix.media3.core.FastPixPlayer
+import io.fastpix.media3.core.StreamType
+
+val player = FastPixPlayer.Builder(this)
+    .setAutoplay(true)
+    .build()
+
+binding.playerView.player = player
+
+player.setFastPixMediaItem {
+    playbackId = "your-playback-id"
+    streamType = StreamType.onDemand // Use StreamType.live for live streams
+    playbackToken = "your-secure-playback-token"
+    drmConfig = DrmConfig() // Defaults to Widevine UUID, multiSession=true
+}
+```
+
+### Custom DRM options
+
+```kotlin
+import androidx.media3.common.C
+import io.fastpix.media3.core.DrmConfig
+
+player.setFastPixMediaItem {
+    playbackId = "your-playback-id"
+    playbackToken = "your-secure-playback-token"
+    drmConfig = DrmConfig(
+        uuid = C.WIDEVINE_UUID,
+        multiSession = true
+    )
+}
+```
+
+Notes:
+- Current SDK DRM flow targets Widevine-protected FastPix HLS playback.
+- `streamType` helps resolve the correct FastPix DRM license endpoint (`on-demand` or `live`).
+- Always test DRM streams on real devices and target Android API levels you support.
 
 ---
 
