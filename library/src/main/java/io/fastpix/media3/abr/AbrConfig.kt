@@ -1,5 +1,6 @@
 package io.fastpix.media3.abr
 
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 
 /**
@@ -23,6 +24,7 @@ import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
  * - Upgrade is gradual — we just raise the cap and let [AdaptiveTrackSelection] ramp up as buffered
  *   duration accumulates. We do NOT force a seek on upgrade.
  */
+@UnstableApi
 data class AbrConfig(
     val minDurationForQualityIncreaseMs: Int = AdaptiveTrackSelection.DEFAULT_MIN_DURATION_FOR_QUALITY_INCREASE_MS,
     val maxDurationForQualityDecreaseMs: Int = 10_000,
