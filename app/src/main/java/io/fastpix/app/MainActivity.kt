@@ -418,13 +418,6 @@ class MainActivity : AppCompatActivity() {
      * Called after the player is initialized.
      */
     private fun setupMediaItem() {
-        /*val playbackId = "1e7f733b-4953-4013-97bb-4ec6cca6c5fb"
-        val playbackToken =
-            "eyJhbGciOiJSUzI1NiJ9.eyJraWQiOiIyNTlmNGEwZC0yOWUwLTQzNTEtYmE0MC1lOGNjZjlmODFhMzQiLCJhdWQiOiJkcm06MWU3ZjczM2ItNDk1My00MDEzLTk3YmItNGVjNmNjYTZjNWZiIiwiaXNzIjoiZmFzdHBpeC5pbyIsInN1YiI6IiIsImlhdCI6MTc3NjA2NDA3MSwiZXhwIjoxNzc2MTUwNDcxfQ.k_nwbgceveD6Az1xPPJ2ojpXdIrRFSDQasSl73xS3vwIX7-HCPl2Uu4noJWhknnW4ZhpJ_NP-PaeXz_SAsqHr_gdtjnKEVoQIjDF1KbPOFrP2T6DLq7wpNkHmX_VFfZBp3D5DmoR7rqTKHDiDccQLy9SbGRem2fNg7RV4c6GFcurEGa7un5thgv8UsfsEaLuEm78iwisDRvWkQr2wWKpPpdWeWCIl60Z9HXUt5wCngMG6X2MKXtS3eNLk-59VK5BGJ5VWGcfH1ywVHojiE9CcdbxI7OrmpiZC3VX_z7RtgjJgQITTXLJvy3338ggVMVlwkVP4FMfcxnjtMGk0_sAGA"
-        val streamType = StreamType.onDemand
-        val drmLicenseUrl =
-            "https://api.fastpix.co/v1/${streamType.stream}/drm/license/widevine/$playbackId?token=$playbackToken"*/
-
         // Use builder pattern to create and set FastPix MediaItem from playback ID
         var playbackUrl = videoModel?.url
         val playbackUri = Uri.parse(playbackUrl)
@@ -434,7 +427,6 @@ class MainActivity : AppCompatActivity() {
                 this.playbackId = playbackId
                 this.streamType = StreamType.onDemand
                 this.playbackToken = token
-                this.customDomain = if(token!=null) "stream.fastpix.co" else "stream.fastpix.io"
                 if (token != null)
                     this.drmConfig = DrmConfig()
             }

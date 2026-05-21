@@ -10,6 +10,9 @@ import java.util.UUID
 data class DrmConfig(
     val uuid: UUID = C.WIDEVINE_UUID,
     val multiSession: Boolean = true,
+    val licenseRequestHeaders: Map<String, String> = mapOf(
+        "Content-Type" to "application/octet-stream"
+    ),
 )
 
 /**
@@ -25,9 +28,10 @@ internal object DrmManager {
     ): MediaItem.DrmConfiguration? {
         if (drmConfig == null || playbackToken == null) return null
         val drmLicenseUrl =
-            "https://api.fastpix.co/v1/${streamType?.stream}/drm/license/widevine/$playbackId?token=$playbackToken"
+            "https://api.fastpix.com/v1/${streamType?.stream}/drm/license/widevine/$playbackId?token=$playbackToken"
         return MediaItem.DrmConfiguration.Builder(drmConfig.uuid)
             .setLicenseUri(drmLicenseUrl)
+            .setLicenseRequestHeaders(drmConfig.licenseRequestHeaders)
             .setMultiSession(drmConfig.multiSession)
             .build()
     }

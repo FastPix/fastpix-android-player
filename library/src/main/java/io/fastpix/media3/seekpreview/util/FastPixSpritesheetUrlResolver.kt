@@ -1,5 +1,6 @@
 package io.fastpix.media3.seekpreview.util
 
+import android.util.Log
 import java.net.URI
 import java.net.URL
 import java.util.regex.Pattern
@@ -10,7 +11,7 @@ import java.util.regex.Pattern
  * Default spritesheet URL format: `https://{imagesHost}/{playbackID}/spritesheet.json`
  *
  * Stream host to images host mapping:
- * - stream.fastpix.io → images.fastpix.io
+ * - stream.fastpix.com → images.fastpix.com
  * - stream.fastpix.app → images.fastpix.app
  * - venus-stream.fastpix.dev → venus-images.fastpix.dev
  */
@@ -49,9 +50,8 @@ object FastPixSpritesheetUrlResolver {
     fun getImagesHost(streamHost: String?): String? {
         if (streamHost.isNullOrBlank()) return null
         return when (streamHost) {
-            "stream.fastpix.io" -> "images.fastpix.io"
-            "stream.fastpix.app" -> "images.fastpix.app"
-            "venus-stream.fastpix.dev" -> "venus-images.fastpix.dev"
+            "stream.fastpix.com" -> "images.fastpix.com"
+            "stream.fastpix.co" -> "images.fastpix.co"
             else -> null
         }
     }

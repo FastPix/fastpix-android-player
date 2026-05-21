@@ -96,8 +96,10 @@ internal class CustomSpritesheetSource(
                 val request = Request.Builder().url(downloadUrl).build()
                 val response = httpClient.newCall(request).execute()
 
-                // 404 means spritesheet doesn't exist for this video — return null (no retry)
-                if (response.code == 404) {
+                // 4xx means the spritesheet isn't available for this video (404 missing,
+                // 400 bad playback ID, 401/403 auth, etc.). These won't recover via retry —
+                // return null so the caller can fall back to timestamp mode.
+                if (response.code in 400..499) {
                     return@downloadWithRetry null
                 }
 

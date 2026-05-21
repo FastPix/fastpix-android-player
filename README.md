@@ -56,7 +56,7 @@ Add the following to your `build.gradle.kts` (or `build.gradle`):
 
 ```kotlin
 dependencies {
-    implementation("io.fastpix.player:android:1.0.9")
+    implementation("io.fastpix.player:android:2.0.0")
 }
 ```
 
@@ -64,7 +64,7 @@ Or if using version catalogs, add to `libs.versions.toml`:
 
 ```toml
 [versions]
-fastpix-player = "1.0.9"
+fastpix-player = "2.0.0"
 
 [libraries]
 fastpix-player = { module = "io.fastpix.player:android-player-sdk", version.ref = "fastpix-player" }
@@ -291,8 +291,8 @@ binding.playerView.player = fastPixPlayer
 
 Seek preview lets you show **thumbnail previews while the user scrubs** your seek bar. When enabled, the SDK automatically attempts to resolve the default FastPix spritesheet URL from the currently loaded stream URL:
 
-- Stream URL: `https://stream.fastpix.io/{playbackId}.m3u8`
-- Spritesheet metadata: `https://images.fastpix.io/{playbackId}/spritesheet.json`
+- Stream URL: `https://stream.fastpix.com/{playbackId}.m3u8`
+- Spritesheet metadata: `https://images.fastpix.com/{playbackId}/spritesheet.json`
 
 If no spritesheet exists (or the current media URL is not a FastPix stream), the SDK falls back based on `PreviewFallbackMode` (default: timestamp).
 
@@ -502,8 +502,8 @@ playerView.setFastPixMediaItem {
     // Adaptive streaming
     renditionOrder = RenditionOrder.Descending   // Quality preference order
     
-    // Custom domain (defaults to "stream.fastpix.io")
-    customDomain = "custom.stream.fastpix.io"
+    // Custom domain (defaults to "stream.fastpix.com")
+    customDomain = "custom.stream.fastpix.com"
     
     // Stream type
     streamType = "on-demand"  // or "live-stream"

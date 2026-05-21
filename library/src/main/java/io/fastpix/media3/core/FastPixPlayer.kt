@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -509,7 +510,7 @@ class FastPixPlayer private constructor(
         // Create playback URL
         val playbackUrl = createFastPixPlaybackUrl(
             playbackId = config.playbackId,
-            customDomain = config.customDomain ?: "stream.fastpix.io",
+            customDomain = config.customDomain ?: "stream.fastpix.com",
             maxResolution = config.maxResolution,
             minResolution = config.minResolution,
             resolution = config.resolution,
@@ -961,7 +962,7 @@ class FastPixPlayer private constructor(
      * Gets the current playback URL (stream URI) for the loaded media item.
      * Works for both playback sources: FastPix (playbackId) and direct URL.
      *
-     * - When using [setFastPixMediaItem], returns the resolved stream URL (e.g. https://stream.fastpix.io/{playbackId}.m3u8).
+     * - When using [setFastPixMediaItem], returns the resolved stream URL (e.g. https://stream.fastpix.com/{playbackId}.m3u8).
      * - When using [setMediaItem] with a URI, returns that URI.
      *
      * @return The current media URI as a string, or null if no media is loaded.

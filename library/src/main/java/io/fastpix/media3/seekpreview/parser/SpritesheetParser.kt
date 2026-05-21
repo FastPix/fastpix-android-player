@@ -32,7 +32,7 @@ interface SpritesheetParser {
      * Parses FastPix spritesheet JSON (url, tile_width, tile_height, duration, tiles).
      * Returns metadata and the image URL to use for loading the sheet.
      *
-     * @param json Raw JSON string from e.g. https://images.fastpix.io/{playbackId}/spritesheet.json
+     * @param json Raw JSON string from e.g. https://images.fastpix.com/{playbackId}/spritesheet.json
      * @return [FastPixSpritesheetResult] or null if not in FastPix format / parse fails
      */
     fun parseFastPixSpritesheetJson(json: String): FastPixSpritesheetResult?

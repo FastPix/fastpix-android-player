@@ -19,7 +19,7 @@ val dummyData = listOf<DummyData>(
     ),
     DummyData(
         "DRM Playback",
-        "https://stream.fastpix.io/1e7f733b-4953-4013-97bb-4ec6cca6c5fb.m3u8",
+        "https://stream.fastpix.io/f89d40ab-b457-4fed-8d13-84d51eb62dfc.m3u8",
     ),
     DummyData(
         "Sprite Sheet",

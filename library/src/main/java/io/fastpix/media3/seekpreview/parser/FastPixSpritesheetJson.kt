@@ -4,12 +4,12 @@ import com.google.gson.annotations.SerializedName
 
 /**
  * FastPix spritesheet JSON format from e.g.
- * https://images.fastpix.io/{playbackId}/spritesheet.json
+ * https://images.fastpix.com/{playbackId}/spritesheet.json
  *
  * Example:
  * ```json
  * {
- *   "url": "https://images.fastpix.io/.../spritesheet.jpg",
+ *   "url": "https://images.fastpix.com/.../spritesheet.jpg",
  *   "tile_width": 256,
  *   "tile_height": 160,
  *   "duration": 596.0,

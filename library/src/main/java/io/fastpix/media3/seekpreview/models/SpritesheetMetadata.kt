@@ -28,13 +28,16 @@ data class SpritesheetMetadata(
 ) {
 
     init {
-        require(rows > 0) { "Rows must be greater than 0" }
-        require(columns > 0) { "Columns must be greater than 0" }
-        require(frameWidth > 0) { "Frame width must be greater than 0" }
-        require(frameHeight > 0) { "Frame height must be greater than 0" }
-        require(frameCount > 0) { "Frame count must be greater than 0" }
-        require(durationMs > 0) { "Duration must be greater than 0" }
-        require(intervalMs > 0) { "Interval must be greater than 0" }
+        // Allow zero values so [TIMESTAMP_ONLY] can be constructed for previews
+        // delivered when no spritesheet is loaded. Parsers still call [isValid]
+        // before treating an instance as a real spritesheet.
+        require(rows >= 0) { "Rows must be non-negative" }
+        require(columns >= 0) { "Columns must be non-negative" }
+        require(frameWidth >= 0) { "Frame width must be non-negative" }
+        require(frameHeight >= 0) { "Frame height must be non-negative" }
+        require(frameCount >= 0) { "Frame count must be non-negative" }
+        require(durationMs >= 0) { "Duration must be non-negative" }
+        require(intervalMs >= 0) { "Interval must be non-negative" }
         require(frameCount <= rows * columns) {
             "Frame count ($frameCount) cannot exceed grid size (${rows * columns})"
         }
@@ -47,12 +50,29 @@ data class SpritesheetMetadata(
         get() = rows * columns
 
     /**
-     * Validates that the metadata is consistent.
+     * Validates that the metadata represents a real, usable spritesheet.
      */
     fun isValid(): Boolean {
         return rows > 0 && columns > 0 &&
                 frameWidth > 0 && frameHeight > 0 &&
                 frameCount > 0 && frameCount <= gridSize &&
                 durationMs > 0 && intervalMs > 0
+    }
+
+    companion object {
+        /**
+         * Sentinel delivered to [io.fastpix.media3.seekpreview.listeners.SeekPreviewListener.onSpritesheetLoaded]
+         * when there is no spritesheet (timestamp-only mode). Copy with the current
+         * [timestampMs] before delivering; [bitmap] stays null.
+         */
+        val TIMESTAMP_ONLY: SpritesheetMetadata = SpritesheetMetadata(
+            rows = 0,
+            columns = 0,
+            frameWidth = 0,
+            frameHeight = 0,
+            frameCount = 0,
+            durationMs = 0,
+            intervalMs = 0
+        )
     }
 }

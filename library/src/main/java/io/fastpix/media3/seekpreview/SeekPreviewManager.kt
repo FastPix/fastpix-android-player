@@ -26,7 +26,6 @@ import io.fastpix.media3.seekpreview.repository.SpritesheetRepositoryImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
@@ -122,61 +121,48 @@ class SeekPreviewManager private constructor(
 
         val playbackUrl = playbackUrlProvider?.getPlaybackUrl()
 
-        var loaded = false
-        var retryDelayMs = INITIAL_RETRY_DELAY_MS
+        try {
+            repository.loadSpritesheet(
+                playbackUrl = playbackUrl,
+                customMetadata = null,
+                generateConfig = null,
+                enableCache = config.cacheEnabled
+            ).collect { (progress, metadata) ->
+                emit(progress)
 
-        while (!loaded) {
-            try {
-                repository.loadSpritesheet(
-                    playbackUrl = playbackUrl,
-                    customMetadata = null,
-                    generateConfig = null,
-                    enableCache = config.cacheEnabled
-                ).collect { (progress, metadata) ->
-                    emit(progress)
-
-                    if (progress == 100) {
-                        withContext(Dispatchers.Main) {
-                            if (metadata != null) {
-                                val spritesheetFile = repository.getSpritesheetFile()
-                                if (spritesheetFile != null) {
-                                    currentMetadata = metadata
-                                    currentMode = PreviewMode.THUMBNAIL
-                                    bitmapProvider = PreviewBitmapProviderImpl(
-                                        spritesheetFile = spritesheetFile,
-                                        metadata = metadata,
-                                        parser = parser,
-                                        mapper = mapper,
-                                        cacheManager = cacheManager,
-                                        config = config,
-                                        scope = scope
-                                    )
-                                    listener?.onSpritesheetInitialized()
-                                }
-                                loaded = true
-                            } else {
-                                // No metadata (e.g. no playback URL, or spritesheet doesn't exist) -> timestamp mode, no retry
-                                currentMode = PreviewMode.TIMESTAMP
-                                loaded = true
+                if (progress == 100) {
+                    withContext(Dispatchers.Main) {
+                        if (metadata != null) {
+                            val spritesheetFile = repository.getSpritesheetFile()
+                            if (spritesheetFile != null) {
+                                currentMetadata = metadata
+                                currentMode = PreviewMode.THUMBNAIL
+                                bitmapProvider = PreviewBitmapProviderImpl(
+                                    spritesheetFile = spritesheetFile,
+                                    metadata = metadata,
+                                    parser = parser,
+                                    mapper = mapper,
+                                    cacheManager = cacheManager,
+                                    config = config,
+                                    scope = scope
+                                )
+                                listener?.onSpritesheetInitialized()
                             }
+                        } else {
+                            currentMode = PreviewMode.TIMESTAMP
                         }
                     }
                 }
-
-                // Repository flow completed without metadata at 100% (shouldn't happen, but guard against it)
-                if (!loaded) {
-                    currentMode = PreviewMode.TIMESTAMP
-                    loaded = true
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    listener?.onSpritesheetFailed(e)
-                }
-                // Retry with exponential backoff (capped at MAX_RETRY_DELAY_MS)
-                delay(retryDelayMs)
-                retryDelayMs = (retryDelayMs * 2).coerceAtMost(MAX_RETRY_DELAY_MS)
-                emit(0) // Reset progress for retry attempt
             }
+        } catch (e: Exception) {
+            // Repository/source already retried transient errors; if we reach here the
+            // spritesheet load is unrecoverable. Settle into timestamp mode instead of
+            // looping forever, and complete the flow.
+            withContext(Dispatchers.Main) {
+                currentMode = PreviewMode.TIMESTAMP
+                listener?.onSpritesheetFailed(e)
+            }
+            emit(100)
         }
     }
     
@@ -291,9 +277,15 @@ class SeekPreviewManager private constructor(
                 // Deliver only if no newer result has been shown yet
                 if (seq > previewDeliveredSeq.get()) {
                     previewDeliveredSeq.set(seq)
-                    currentMetadata?.let { meta ->
-                        listener?.onSpritesheetLoaded(
-                            meta.copy(bitmap = bitmap, timestampMs = timeMs)
+                    val base = currentMetadata
+                    when {
+                        base != null -> listener?.onSpritesheetLoaded(
+                            base.copy(bitmap = bitmap, timestampMs = timeMs)
+                        )
+                        // No spritesheet: deliver a timestamp-only frame so the UI can
+                        // show the seek time. Suppressed when fallback is NONE.
+                        fallbackMode == PreviewFallbackMode.TIMESTAMP -> listener?.onSpritesheetLoaded(
+                            SpritesheetMetadata.TIMESTAMP_ONLY.copy(timestampMs = timeMs)
                         )
                     }
                 }
@@ -337,9 +329,6 @@ class SeekPreviewManager private constructor(
     }
     
     companion object {
-        private const val INITIAL_RETRY_DELAY_MS = 2000L
-        private const val MAX_RETRY_DELAY_MS = 30_000L
-
         /**
          * Creates a new [SeekPreviewManager] instance.
          * When [playbackUrlProvider] is set, [loadSpritesheet] uses it to resolve the default

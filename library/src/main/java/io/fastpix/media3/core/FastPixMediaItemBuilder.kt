@@ -41,7 +41,7 @@ class FastPixMediaItemBuilder {
     var renditionOrder: RenditionOrder? = null
 
     /**
-     * Optional custom domain (defaults to "stream.fastpix.io").
+     * Optional custom domain (defaults to "stream.fastpix.com").
      */
     var customDomain: String? = null
 
