@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - **Default stream host migration**: the default `customDomain` for `FastPixPlayer` is now `stream.fastpix.com` (was `stream.fastpix.io`). Resolved playback URLs and the example/docs reflect the new host
-- **Spritesheet URL resolver**: `FastPixSpritesheetUrlResolver` now maps `stream.fastpix.com` → `images.fastpix.com` and `stream.fastpix.co` → `images.fastpix.co`. The previous `stream.fastpix.io`, `stream.fastpix.app`, and `venus-stream.fastpix.dev` mappings have been removed
+- **Spritesheet URL resolver**: `FastPixSpritesheetUrlResolver` now maps `stream.fastpix.io` → `images.fastpix.com` and `stream.fastpix.app` → `images.fastpix.co`. The previous `stream.fastpix.io`, `stream.fastpix.app`, and `venus-stream.fastpix.dev` mappings have been removed
 - **Seek preview load is no longer an infinite retry loop**: `SeekPreviewManager.loadSpritesheet` now attempts the load once and, on unrecoverable failure, settles into timestamp mode and completes the flow. The lower-level repository/source still retries transient errors internally. Removed the `INITIAL_RETRY_DELAY_MS` / `MAX_RETRY_DELAY_MS` constants and the exponential backoff loop
 - **`CustomSpritesheetSource` treats all 4xx as terminal**: previously only `404` skipped retry; now `400`/`401`/`403`/`404` etc. all short-circuit to the no-spritesheet path (these won't recover via retry)
 - **`SpritesheetMetadata` validation relaxed** to allow non-negative values so the `TIMESTAMP_ONLY` sentinel can be constructed. Real spritesheets are still validated via `isValid()` before being used
