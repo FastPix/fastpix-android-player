@@ -654,64 +654,11 @@ class FastPixPlayer private constructor(
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            // Detect buffering state transitions
-            if (previousPlaybackState != Player.STATE_BUFFERING && playbackState == Player.STATE_BUFFERING) {
-                playbackListeners.forEach { it.onBufferingStart() }
-                pollVideoQualityChange()
-            } else if (previousPlaybackState == Player.STATE_BUFFERING && playbackState == Player.STATE_READY) {
-                playbackListeners.forEach { it.onBufferingEnd() }
-                pollVideoQualityChange()
-            }
-
-            // Notify once when video is ready to play for the first time
-            if (playbackState == Player.STATE_READY && !hasNotifiedPlayerReady) {
-                hasNotifiedPlayerReady = true
-                val durationMs =
-                    if (exoPlayer.duration != C.TIME_UNSET) exoPlayer.duration else C.TIME_UNSET
-                playbackListeners.forEach { it.onPlayerReady(durationMs) }
-            }
-
-            // Update previous state
+            handleBufferingStateTransition(playbackState)
+            notifyPlayerReadyIfNeeded(playbackState)
             previousPlaybackState = playbackState
-
-            // Stop time updates when playback ends
-            if (playbackState == Player.STATE_ENDED) {
-                stopTimeUpdates()
-                // Notify listeners that playback has completed
-                playbackListeners.forEach { it.onCompleted() }
-            }
-
-            // If we're seeking and player becomes ready, complete the seek
-            if (isSeeking && playbackState == Player.STATE_READY) {
-                val finalPositionMs = exoPlayer.currentPosition
-                val durationMs = if (exoPlayer.duration != C.TIME_UNSET) {
-                    exoPlayer.duration
-                } else {
-                    0L
-                }
-
-                // Reset seeking state
-                isSeeking = false
-
-                // Notify playback listeners
-                playbackListeners.forEach {
-                    it.onSeekEnd(
-                        seekStartPositionMs,
-                        finalPositionMs,
-                        durationMs
-                    )
-                }
-
-                // Apply any pending audio/subtitle track switch that was deferred during seek
-                applyPendingAudioTrackSwitch()
-                applyPendingSubtitleTrackSwitch()
-                applyPendingVideoTrackSwitch()
-
-                // Resume time updates if player is playing
-                if (exoPlayer.isPlaying && playbackListeners.isNotEmpty()) {
-                    startTimeUpdates()
-                }
-            }
+            handlePlaybackEndedState(playbackState)
+            completeSeekIfReady(playbackState)
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -833,6 +780,67 @@ class FastPixPlayer private constructor(
             subtitleTrackListeners.forEach { listener ->
                 listener.onSubtitleCueChange(info)
             }
+        }
+    }
+
+    private fun handleBufferingStateTransition(playbackState: Int) {
+        val enteredBuffering =
+            previousPlaybackState != Player.STATE_BUFFERING &&
+                playbackState == Player.STATE_BUFFERING
+        val exitedBufferingToReady =
+            previousPlaybackState == Player.STATE_BUFFERING &&
+                playbackState == Player.STATE_READY
+        when {
+            enteredBuffering -> {
+                playbackListeners.forEach { it.onBufferingStart() }
+                pollVideoQualityChange()
+            }
+
+            exitedBufferingToReady -> {
+                playbackListeners.forEach { it.onBufferingEnd() }
+                pollVideoQualityChange()
+            }
+        }
+    }
+
+    private fun notifyPlayerReadyIfNeeded(playbackState: Int) {
+        if (playbackState != Player.STATE_READY || hasNotifiedPlayerReady) return
+        hasNotifiedPlayerReady = true
+        val durationMs = if (exoPlayer.duration != C.TIME_UNSET) exoPlayer.duration else C.TIME_UNSET
+        playbackListeners.forEach { it.onPlayerReady(durationMs) }
+    }
+
+    private fun handlePlaybackEndedState(playbackState: Int) {
+        if (playbackState != Player.STATE_ENDED) return
+        stopTimeUpdates()
+        playbackListeners.forEach { it.onCompleted() }
+    }
+
+    private fun completeSeekIfReady(playbackState: Int) {
+        if (!isSeeking || playbackState != Player.STATE_READY) return
+        val finalPositionMs = exoPlayer.currentPosition
+        val durationMs = if (exoPlayer.duration != C.TIME_UNSET) exoPlayer.duration else 0L
+
+        // Reset seeking state
+        isSeeking = false
+
+        // Notify playback listeners
+        playbackListeners.forEach {
+            it.onSeekEnd(
+                seekStartPositionMs,
+                finalPositionMs,
+                durationMs
+            )
+        }
+
+        // Apply any pending audio/subtitle track switch that was deferred during seek
+        applyPendingAudioTrackSwitch()
+        applyPendingSubtitleTrackSwitch()
+        applyPendingVideoTrackSwitch()
+
+        // Resume time updates if player is playing
+        if (exoPlayer.isPlaying && playbackListeners.isNotEmpty()) {
+            startTimeUpdates()
         }
     }
 
