@@ -633,11 +633,13 @@ class MainActivity : AppCompatActivity() {
                 onAutoRotateSettingChanged()
             }
         }
-        contentResolver.registerContentObserver(
-            Settings.System.getUriFor(Settings.System.ACCELEROMETER_ROTATION),
-            false,
-            autoRotateObserver!!
-        )
+        autoRotateObserver?.let {
+            contentResolver.registerContentObserver(
+                Settings.System.getUriFor(Settings.System.ACCELEROMETER_ROTATION),
+                false,
+                it
+            )
+        }
     }
 
     /**

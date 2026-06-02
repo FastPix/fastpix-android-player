@@ -56,7 +56,7 @@ Add the following to your `build.gradle.kts` (or `build.gradle`):
 
 ```kotlin
 dependencies {
-    implementation("io.fastpix.player:android:2.0.0")
+    implementation("io.fastpix.player:android:2.0.1")
 }
 ```
 
@@ -64,7 +64,7 @@ Or if using version catalogs, add to `libs.versions.toml`:
 
 ```toml
 [versions]
-fastpix-player = "2.0.0"
+fastpix-player = "2.0.1"
 
 [libraries]
 fastpix-player = { module = "io.fastpix.player:android-player-sdk", version.ref = "fastpix-player" }
