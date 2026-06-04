@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.1]
+
+### Updates:
+- Refactored `applyDefaultTrackSelection` in `FastPixPlayer.kt` into smaller, more specific helper methods for audio and subtitle selection
+- Changed `streamType` in `FastPixMediaItemBuilder.kt` from nullable to a default value of `StreamType.onDemand`
+- Improved safety when registering `autoRotateObserver` in `MainActivity.kt` using null-safe calls
+- Updated `PlayerStore.kt` and `PlayerView.kt` to support nullable `FastPixPlayer` instances
+- Replaced `e.printStackTrace()` with `Logger.log` in `Utils.kt`
+- Cleaned up code by using `.orEmpty()` and removing unnecessary null checks in `DrmManager.kt` and `FastPixPlayer.kt`
+
 ## [2.0.0]
 
 ### Added

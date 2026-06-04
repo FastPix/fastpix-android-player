@@ -52,7 +52,7 @@ internal object PlayerStore {
      * @param viewId The view ID to associate with the player.
      * @param player The FastPixPlayer instance to store.
      */
-    fun putPlayer(viewId: Int, player: FastPixPlayer) {
+    fun putPlayer(viewId: Int, player: FastPixPlayer?) {
         players.put(viewId, player)
     }
     

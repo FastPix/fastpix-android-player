@@ -198,14 +198,14 @@ class PlayerView @JvmOverloads constructor(
                 // Store player instance if retention is enabled and view has an ID
                 // Store immediately so it's available even if view is quickly detached
                 if (retainPlayerOnConfigChange && viewId != View.NO_ID) {
-                    PlayerStore.putPlayer(viewId, fastPixPlayer!!)
+                    PlayerStore.putPlayer(viewId, fastPixPlayer)
                 }
             }
 
             // Attach player to view surface
             // This does NOT reset playback state - ExoPlayer preserves state when reattached
             if (isAttachedToWindow) {
-                media3PlayerView.player = fastPixPlayer!!.getExoPlayer()
+                media3PlayerView.player = fastPixPlayer?.getExoPlayer()
             }
         }
     }

@@ -24,11 +24,11 @@ internal object DrmManager {
         drmConfig: DrmConfig?,
         playbackId: String,
         playbackToken: String?,
-        streamType: StreamType?
+        streamType: StreamType
     ): MediaItem.DrmConfiguration? {
         if (drmConfig == null || playbackToken == null) return null
         val drmLicenseUrl =
-            "https://api.fastpix.com/v1/${streamType?.stream}/drm/license/widevine/$playbackId?token=$playbackToken"
+            "https://api.fastpix.com/v1/${streamType.stream}/drm/license/widevine/$playbackId?token=$playbackToken"
         return MediaItem.DrmConfiguration.Builder(drmConfig.uuid)
             .setLicenseUri(drmLicenseUrl)
             .setLicenseRequestHeaders(drmConfig.licenseRequestHeaders)

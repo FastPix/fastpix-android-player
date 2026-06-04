@@ -48,7 +48,7 @@ class FastPixMediaItemBuilder {
     /**
      * Optional stream type ("on-demand" or "live-stream", defaults to "on-demand").
      */
-    var streamType: StreamType? = null
+    var streamType: StreamType = StreamType.onDemand
 
     /**
      * Optional playback token for secure playback.

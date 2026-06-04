@@ -654,64 +654,11 @@ class FastPixPlayer private constructor(
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            // Detect buffering state transitions
-            if (previousPlaybackState != Player.STATE_BUFFERING && playbackState == Player.STATE_BUFFERING) {
-                playbackListeners.forEach { it.onBufferingStart() }
-                pollVideoQualityChange()
-            } else if (previousPlaybackState == Player.STATE_BUFFERING && playbackState == Player.STATE_READY) {
-                playbackListeners.forEach { it.onBufferingEnd() }
-                pollVideoQualityChange()
-            }
-
-            // Notify once when video is ready to play for the first time
-            if (playbackState == Player.STATE_READY && !hasNotifiedPlayerReady) {
-                hasNotifiedPlayerReady = true
-                val durationMs =
-                    if (exoPlayer.duration != C.TIME_UNSET) exoPlayer.duration else C.TIME_UNSET
-                playbackListeners.forEach { it.onPlayerReady(durationMs) }
-            }
-
-            // Update previous state
+            handleBufferingStateTransition(playbackState)
+            notifyPlayerReadyIfNeeded(playbackState)
             previousPlaybackState = playbackState
-
-            // Stop time updates when playback ends
-            if (playbackState == Player.STATE_ENDED) {
-                stopTimeUpdates()
-                // Notify listeners that playback has completed
-                playbackListeners.forEach { it.onCompleted() }
-            }
-
-            // If we're seeking and player becomes ready, complete the seek
-            if (isSeeking && playbackState == Player.STATE_READY) {
-                val finalPositionMs = exoPlayer.currentPosition
-                val durationMs = if (exoPlayer.duration != C.TIME_UNSET) {
-                    exoPlayer.duration
-                } else {
-                    0L
-                }
-
-                // Reset seeking state
-                isSeeking = false
-
-                // Notify playback listeners
-                playbackListeners.forEach {
-                    it.onSeekEnd(
-                        seekStartPositionMs,
-                        finalPositionMs,
-                        durationMs
-                    )
-                }
-
-                // Apply any pending audio/subtitle track switch that was deferred during seek
-                applyPendingAudioTrackSwitch()
-                applyPendingSubtitleTrackSwitch()
-                applyPendingVideoTrackSwitch()
-
-                // Resume time updates if player is playing
-                if (exoPlayer.isPlaying && playbackListeners.isNotEmpty()) {
-                    startTimeUpdates()
-                }
-            }
+            handlePlaybackEndedState(playbackState)
+            completeSeekIfReady(playbackState)
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -823,7 +770,7 @@ class FastPixPlayer private constructor(
 
         override fun onCues(cueGroup: CueGroup) {
             val cues = cueGroup.cues.map { cue ->
-                val text = cue.text?.toString() ?: ""
+                val text = cue.text?.toString().orEmpty()
                 val startUs = cueGroup.presentationTimeUs
                 val startMs = if (startUs != C.TIME_UNSET) startUs / 1000 else 0L
                 val endMs = startMs
@@ -833,6 +780,67 @@ class FastPixPlayer private constructor(
             subtitleTrackListeners.forEach { listener ->
                 listener.onSubtitleCueChange(info)
             }
+        }
+    }
+
+    private fun handleBufferingStateTransition(playbackState: Int) {
+        val enteredBuffering =
+            previousPlaybackState != Player.STATE_BUFFERING &&
+                playbackState == Player.STATE_BUFFERING
+        val exitedBufferingToReady =
+            previousPlaybackState == Player.STATE_BUFFERING &&
+                playbackState == Player.STATE_READY
+        when {
+            enteredBuffering -> {
+                playbackListeners.forEach { it.onBufferingStart() }
+                pollVideoQualityChange()
+            }
+
+            exitedBufferingToReady -> {
+                playbackListeners.forEach { it.onBufferingEnd() }
+                pollVideoQualityChange()
+            }
+        }
+    }
+
+    private fun notifyPlayerReadyIfNeeded(playbackState: Int) {
+        if (playbackState != Player.STATE_READY || hasNotifiedPlayerReady) return
+        hasNotifiedPlayerReady = true
+        val durationMs = if (exoPlayer.duration != C.TIME_UNSET) exoPlayer.duration else C.TIME_UNSET
+        playbackListeners.forEach { it.onPlayerReady(durationMs) }
+    }
+
+    private fun handlePlaybackEndedState(playbackState: Int) {
+        if (playbackState != Player.STATE_ENDED) return
+        stopTimeUpdates()
+        playbackListeners.forEach { it.onCompleted() }
+    }
+
+    private fun completeSeekIfReady(playbackState: Int) {
+        if (!isSeeking || playbackState != Player.STATE_READY) return
+        val finalPositionMs = exoPlayer.currentPosition
+        val durationMs = if (exoPlayer.duration != C.TIME_UNSET) exoPlayer.duration else 0L
+
+        // Reset seeking state
+        isSeeking = false
+
+        // Notify playback listeners
+        playbackListeners.forEach {
+            it.onSeekEnd(
+                seekStartPositionMs,
+                finalPositionMs,
+                durationMs
+            )
+        }
+
+        // Apply any pending audio/subtitle track switch that was deferred during seek
+        applyPendingAudioTrackSwitch()
+        applyPendingSubtitleTrackSwitch()
+        applyPendingVideoTrackSwitch()
+
+        // Resume time updates if player is playing
+        if (exoPlayer.isPlaying && playbackListeners.isNotEmpty()) {
+            startTimeUpdates()
         }
     }
 
@@ -1896,58 +1904,63 @@ class FastPixPlayer private constructor(
         if (Looper.myLooper() != Looper.getMainLooper()) return false
         if (exoPlayer.mediaItemCount == 0) return false
 
-        var changed = false
+        val audioChanged = applyDefaultAudioSelectionIfNeeded(trackManager.decideAutoAudioSelection())
+        val subtitleChanged =
+            applyDefaultSubtitleSelectionIfNeeded(trackManager.decideAutoSubtitleSelection())
+        return audioChanged || subtitleChanged
+    }
 
-        when (val audioAction = trackManager.decideAutoAudioSelection()) {
-            is TrackManager.AutoSelectionAction.SelectTrack -> {
-                val current = trackManager.getCurrentAudioTrack()
-                if (current?.id != audioAction.trackId) {
-                    val applied = mediaSelectionController.setAudioTrack(audioAction.trackId)
-                    if (applied != null) {
-                        changed = true
-                        // Optional but recommended: update UI immediately.
-                        audioTrackListeners.forEach { it.onAudioTracksChange(applied) }
-                    }
-                }
-            }
+    private fun applyDefaultAudioSelectionIfNeeded(
+        action: TrackManager.AutoSelectionAction
+    ): Boolean {
+        if (action !is TrackManager.AutoSelectionAction.SelectTrack) return false
+        val current = trackManager.getCurrentAudioTrack()
+        if (current?.id == action.trackId) return false
 
-            TrackManager.AutoSelectionAction.DisableSubtitles,
-            TrackManager.AutoSelectionAction.NoOp -> Unit
+        val applied = mediaSelectionController.setAudioTrack(action.trackId) ?: return false
+        // Optional but recommended: update UI immediately.
+        audioTrackListeners.forEach { it.onAudioTracksChange(applied) }
+        return true
+    }
+
+    private fun applyDefaultSubtitleSelectionIfNeeded(
+        action: TrackManager.AutoSelectionAction
+    ): Boolean {
+        return when (action) {
+            is TrackManager.AutoSelectionAction.SelectTrack ->
+                applyDefaultSubtitleTrackSelection(action.trackId)
+
+            TrackManager.AutoSelectionAction.DisableSubtitles -> applyDefaultSubtitleDisable()
+            TrackManager.AutoSelectionAction.NoOp -> false
         }
+    }
 
-        when (val subAction = trackManager.decideAutoSubtitleSelection()) {
-            is TrackManager.AutoSelectionAction.SelectTrack -> {
-                val current = trackManager.getCurrentSubtitleTrack()
-                val currentlyDisabled =
-                    exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
-                if (current?.id != subAction.trackId || currentlyDisabled) {
-                    val applied = mediaSelectionController.setSubtitleTrack(subAction.trackId)
-                    if (applied != null) {
-                        changed = true
-                        // Optional but recommended: update UI immediately.
-                        subtitleTrackListeners.forEach { it.onSubtitleChange(applied) }
-                    }
-                }
-            }
+    private fun applyDefaultSubtitleTrackSelection(trackId: String): Boolean {
+        val current = trackManager.getCurrentSubtitleTrack()
+        val currentlyDisabled = isSubtitleTrackTypeDisabled()
+        if (current?.id == trackId && !currentlyDisabled) return false
 
-            TrackManager.AutoSelectionAction.DisableSubtitles -> {
-                // Only auto-disable when user has NOT explicitly disabled; TrackManager encodes that.
-                val currentlyDisabled =
-                    exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
-                // Avoid firing "Subtitle: Off" updates when subtitles are already effectively off.
-                // We only need to disable when a subtitle track is actually selected (e.g., default-selected by stream).
-                val current = trackManager.getCurrentSubtitleTrack()
-                if (!currentlyDisabled && current != null) {
-                    mediaSelectionController.disableSubtitles()
-                    changed = true
-                    subtitleTrackListeners.forEach { it.onSubtitleChange(null) }
-                }
-            }
+        val applied = mediaSelectionController.setSubtitleTrack(trackId) ?: return false
+        // Optional but recommended: update UI immediately.
+        subtitleTrackListeners.forEach { it.onSubtitleChange(applied) }
+        return true
+    }
 
-            TrackManager.AutoSelectionAction.NoOp -> Unit
-        }
+    private fun applyDefaultSubtitleDisable(): Boolean {
+        // Only auto-disable when user has NOT explicitly disabled; TrackManager encodes that.
+        val currentlyDisabled = isSubtitleTrackTypeDisabled()
+        // Avoid firing "Subtitle: Off" updates when subtitles are already effectively off.
+        // We only need to disable when a subtitle track is actually selected (e.g., default-selected by stream).
+        val current = trackManager.getCurrentSubtitleTrack()
+        if (currentlyDisabled || current == null) return false
 
-        return changed
+        mediaSelectionController.disableSubtitles()
+        subtitleTrackListeners.forEach { it.onSubtitleChange(null) }
+        return true
+    }
+
+    private fun isSubtitleTrackTypeDisabled(): Boolean {
+        return exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
     }
 
     /**

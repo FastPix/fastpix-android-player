@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.PowerManager
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
+import io.fastpix.data.utils.Logger
 
 object Utils {
 
@@ -31,6 +32,6 @@ fun AppCompatActivity.keepScreenOn() {
         mWakeLock.acquire()
         mWakeLock.release()
     } catch (e: Exception) {
-        e.printStackTrace()
+        Logger.log(e.message.orEmpty())
     }
 }
