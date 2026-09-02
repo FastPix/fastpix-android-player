@@ -288,14 +288,27 @@ Executors.newSingleThreadExecutor().execute {
 }
 ```
 
-By default HLS playlists are **not** cached, only the segments beneath them. This is what keeps live
-streams correct — a live media playlist is rewritten by the origin every few seconds, and serving a
-cached copy would pin the player to a segment list that no longer exists. If every stream in your
-app is on-demand, opt in and save two round trips per item:
+By default HLS playlists are **not** cached, only the segments beneath them — a live media playlist
+is rewritten by the origin every few seconds, and serving a cached copy would pin the player to a
+segment list that no longer exists.
+
+**But if all your content is on-demand, use `forOnDemandFeed()` — on FastPix it is what makes
+segment caching work at all:**
 
 ```kotlin
 .setCacheConfig(CacheConfig.forOnDemandFeed())      // caches playlists too — VOD only
 ```
+
+FastPix re-signs segment URLs on every media-playlist fetch. The same segment comes back as
+`.../<new-signature-blob>/video_270/1.m4s` each time, so once the playlist is re-fetched, the
+segments beneath it are addressed by URLs that were never cached, and every previously downloaded or
+pre-warmed byte is unreachable. Caching the playlist pins one set of segment URLs, and the segments
+under it then hit. With playlists uncached, segment reuse is limited to a single continuous
+playback, and `FastPixPreCacher` logs a warning saying so.
+
+Cache keys ignore `token`, `signature`, `expires` and `cdn`, so a stream re-requested with a freshly
+minted token still hits. Content-selecting parameters like `maxResolution` are always part of the
+key. Override with `CacheConfig.cacheKeyIgnoredQueryParameters`.
 
 ### 3. Pre-caching upcoming items (opt-in)
 

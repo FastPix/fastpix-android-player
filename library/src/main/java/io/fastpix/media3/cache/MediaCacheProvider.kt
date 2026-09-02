@@ -91,10 +91,15 @@ object MediaCacheProvider {
      * populate the cache as bytes arrive. [CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR] means a
      * corrupt or unwritable cache degrades to a plain network read instead of failing playback.
      */
-    internal fun cacheDataSourceFactory(context: Context, cache: Cache): CacheDataSource.Factory =
+    internal fun cacheDataSourceFactory(
+        context: Context,
+        cache: Cache,
+        config: CacheConfig,
+    ): CacheDataSource.Factory =
         CacheDataSource.Factory()
             .setCache(cache)
             .setUpstreamDataSourceFactory(DefaultDataSource.Factory(context.applicationContext))
+            .setCacheKeyFactory(FastPixCacheKeyFactory(config.cacheKeyIgnoredQueryParameters))
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
     /**
@@ -109,7 +114,7 @@ object MediaCacheProvider {
         cache: Cache,
         config: CacheConfig,
     ): DataSource.Factory {
-        val cacheFactory = cacheDataSourceFactory(context, cache)
+        val cacheFactory = cacheDataSourceFactory(context, cache, config)
         if (config.cachePlaylists) return cacheFactory
         return PlaylistAwareDataSourceFactory(
             cacheFactory = cacheFactory,

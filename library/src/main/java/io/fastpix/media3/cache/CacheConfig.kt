@@ -38,11 +38,35 @@ data class CacheConfig(
      *
      * **Off by default, and only safe for on-demand content.** A live media playlist is rewritten
      * by the origin every few seconds; serving a cached copy would pin the player to a stale
-     * segment list. Turn this on only when every stream played through the process is VOD — in a
-     * reel/episode feed it removes two network round trips per item, which is most of what is
-     * left of the start-up delay once segments are warm.
+     * segment list.
+     *
+     * **On FastPix, turning this on is what makes segment caching work at all.** The origin
+     * re-signs segment URLs on every media-playlist fetch — the same segment comes back as
+     * `.../<new-signature-blob>/video_270/1.m4s` each time — so if the playlist is re-fetched, the
+     * segments beneath it are addressed by URLs that were never cached, and every warmed or
+     * previously downloaded byte is unreachable. Caching the playlist pins one set of segment URLs,
+     * and the segments under it then hit. It also saves two round trips per item.
+     *
+     * So: on-demand feeds should use [forOnDemandFeed]. Leave this off only when live streams may
+     * be played in the same process, accepting that segment reuse is then limited to a single
+     * continuous playback.
      */
     val cachePlaylists: Boolean = false,
+
+    /**
+     * Query parameters removed before a URL is used as a cache key.
+     *
+     * These authorise a request rather than select content, and they change between sessions: a
+     * stream re-requested with a freshly minted `token` addresses the identical asset but would
+     * otherwise miss the cache entirely. Content-selecting parameters (`maxResolution`,
+     * `renditionOrder`, ...) are never stripped.
+     *
+     * Note the consequence of ignoring `token`: bytes fetched under one token stay readable from
+     * disk after it expires, until eviction. That is ordinary HTTP-cache behaviour and DRM licences
+     * are unaffected, but pass a set without `token` if your entitlements require otherwise, or
+     * [emptySet] to key on the exact URL as before.
+     */
+    val cacheKeyIgnoredQueryParameters: Set<String> = DEFAULT_IGNORED_QUERY_PARAMETERS,
 
     /**
      * Directory backing the cache. Defaults to `context.cacheDir/[DEFAULT_DIRECTORY_NAME]`, which
@@ -62,6 +86,11 @@ data class CacheConfig(
 
         /** Default folder name under `context.cacheDir`. */
         const val DEFAULT_DIRECTORY_NAME: String = "fastpix-media-cache"
+
+        /** Query parameters stripped from cache keys by default. */
+        @JvmField
+        val DEFAULT_IGNORED_QUERY_PARAMETERS: Set<String> =
+            setOf("token", "signature", "expires", "cdn")
 
         /** Cache turned off — the SDK's default. */
         @JvmField

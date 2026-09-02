@@ -67,7 +67,8 @@ class FastPixPreCacher private constructor(
 ) {
 
     private val appContext: Context = context.applicationContext
-    private val cacheFactory = MediaCacheProvider.cacheDataSourceFactory(appContext, cache)
+    private val cacheFactory =
+        MediaCacheProvider.cacheDataSourceFactory(appContext, cache, cacheConfig)
     private val upstreamFactory = DefaultDataSource.Factory(appContext)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -407,6 +408,18 @@ class FastPixPreCacher private constructor(
             config: PreCacheConfig = PreCacheConfig.DEFAULT,
         ): FastPixPreCacher? {
             val cache = MediaCacheProvider.getOrCreate(context, cacheConfig) ?: return null
+            if (!cacheConfig.cachePlaylists) {
+                // FastPix re-signs segment URLs on every media-playlist fetch, so unless the
+                // playlist itself is cached, playback asks for URLs this warm never wrote and
+                // every warmed byte is dead. Loud, because the failure is otherwise invisible:
+                // pre-caching appears to work and simply never helps.
+                Log.w(
+                    TAG,
+                    "Pre-caching with CacheConfig.cachePlaylists=false. Segment URLs are re-signed " +
+                            "per playlist fetch, so warmed segments will not be read back by " +
+                            "playback. Use CacheConfig.forOnDemandFeed() for on-demand feeds.",
+                )
+            }
             return FastPixPreCacher(context, cache, cacheConfig, config)
         }
     }

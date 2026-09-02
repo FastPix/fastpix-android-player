@@ -12,8 +12,14 @@ All notable changes to this project will be documented in this file.
   forbids two `SimpleCache` instances over one directory
   - `MediaCacheProvider` owns the singleton and exposes `cachedBytes()`, `clear()`, and `release()`
   - Manifests bypass the cache by default (`CacheConfig.cachePlaylists = false`) so a cached
-    playlist can never pin a **live** stream to a stale segment list. On-demand-only apps can opt in
-    with `CacheConfig.forOnDemandFeed()`, which removes two round trips per item
+    playlist can never pin a **live** stream to a stale segment list. On-demand apps should opt in
+    with `CacheConfig.forOnDemandFeed()`: FastPix re-signs segment URLs on every media-playlist
+    fetch, so without a cached playlist the segments beneath it are addressed by URLs that were
+    never cached and no byte is ever reused across fetches. `FastPixPreCacher` logs a warning when
+    created against a cache that does not cache playlists
+  - Cache keys ignore `token`, `signature`, `expires` and `cdn`
+    (`CacheConfig.cacheKeyIgnoredQueryParameters`), so a stream re-requested with a freshly minted
+    token still hits. Content-selecting parameters such as `maxResolution` always remain in the key
 - **`FastPixPreCacher`** (opt-in): warms upcoming media into the cache before the user reaches it —
   the fix for reel/episode feeds that give every page its own player. Walks the HLS ladder the way
   the player will (multivariant playlist → chosen media playlist → first segments), bounded by
