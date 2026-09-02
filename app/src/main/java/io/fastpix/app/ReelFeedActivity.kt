@@ -55,9 +55,14 @@ class ReelFeedActivity : AppCompatActivity() {
     private lateinit var pool: ReelPlayerPool
     private lateinit var adapter: ReelAdapter
 
-    /** The DRM sample needs a token, so it is left out of the feed. */
+    /**
+     * Streams excluded from the feed: the DRM sample needs a playback token, and 112a2222 is
+     * dropped at request.
+     */
     private val reels: List<DummyData> by lazy {
-        dummyData.filterNot { it.id.contains("DRM", ignoreCase = true) }
+        dummyData.filterNot { item ->
+            item.id.contains("DRM", ignoreCase = true) || item.url.contains(EXCLUDED_PLAYBACK_ID)
+        }
     }
 
     private var turboEnabled: Boolean = true
@@ -299,23 +304,13 @@ class ReelFeedActivity : AppCompatActivity() {
             override fun onPlaybackStateChanged(isPlaying: Boolean) = Unit
 
             override fun onError(error: PlaybackException) {
-                itemBinding.reelSpinner.visibility = View.GONE
                 itemBinding.tvReelLabel.text = "Error: ${error.errorCodeName}"
             }
 
             override fun onPlayerReady(durationMs: Long) {
                 if (measured) return
                 measured = true
-                itemBinding.reelSpinner.visibility = View.GONE
                 onStartMeasured(position, System.currentTimeMillis() - selectedAtMs, resumed = false)
-            }
-
-            override fun onBufferingStart() {
-                itemBinding.reelSpinner.visibility = View.VISIBLE
-            }
-
-            override fun onBufferingEnd() {
-                itemBinding.reelSpinner.visibility = View.GONE
             }
         }
 
@@ -335,7 +330,6 @@ class ReelFeedActivity : AppCompatActivity() {
             this.position = position
             this.measured = false
             itemBinding.tvReelLabel.text = "#$position  ${item.id}"
-            itemBinding.reelSpinner.visibility = View.VISIBLE
 
             itemBinding.reelPlayerView.player = player
             player.addPlaybackListener(playbackListener)
@@ -354,7 +348,6 @@ class ReelFeedActivity : AppCompatActivity() {
             // ready callback will not fire again — report the resume instead of a bogus timing.
             if (alreadyLoaded && player.getPlaybackState() == Player.STATE_READY) {
                 measured = true
-                itemBinding.reelSpinner.visibility = View.GONE
                 onStartMeasured(position, 0L, resumed = true)
             }
         }
@@ -364,7 +357,6 @@ class ReelFeedActivity : AppCompatActivity() {
             current.removePlaybackListener(playbackListener)
             current.pause()
             itemBinding.reelPlayerView.player = null
-            itemBinding.reelSpinner.visibility = View.GONE
             player = null
         }
     }
@@ -377,6 +369,10 @@ class ReelFeedActivity : AppCompatActivity() {
 
         /** How many upcoming items to warm. */
         private const val PRECACHE_AHEAD = 2
+
+        /** Playback ID kept out of the feed. */
+        private const val EXCLUDED_PLAYBACK_ID = "112a2222-0f31-44a0-bcf6-30cfa6e1d17d"
+
 
         /**
          * Ceiling for both the ABR cap and the pre-cacher's rendition choice, so the two agree.

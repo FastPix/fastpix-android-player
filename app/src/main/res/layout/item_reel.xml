@@ -13,13 +13,6 @@
             android:layout_height="match_parent"
             app:fastPixResizeMode="zoom" />
 
-        <ProgressBar
-            android:id="@+id/reelSpinner"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:visibility="gone" />
-
         <TextView
             android:id="@+id/tvReelLabel"
             android:layout_width="match_parent"
