@@ -401,6 +401,11 @@ This only applies to media queued with `setMediaItems`. With one media item ther
 and the setting does nothing — use `FastPixPreCacher` for the player-per-page shape. The two are
 complementary and can be enabled together.
 
+The sample app's **Episode Feed** screen is this shape: one player holding the whole queue, Prev/Next
+buttons, and a Preload toggle. Its disk cache is deliberately off so preloading is the only variable
+being measured. See
+[`EpisodeFeedActivity`](app/src/main/java/io/fastpix/app/EpisodeFeedActivity.kt).
+
 ### Measuring it
 
 The sample app ships a working reel feed for exactly this: **Reel Feed (preload / cache benchmark)**

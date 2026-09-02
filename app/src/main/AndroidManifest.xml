@@ -40,6 +40,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".EpisodeFeedActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize" />
+
     </application>
 
 </manifest>

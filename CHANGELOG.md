@@ -46,6 +46,10 @@ All notable changes to this project will be documented in this file.
   configured and opened successfully; with caching off, player construction is unchanged
 
 ### Sample app
+- Added **EpisodeFeedActivity**: the queue shape — one player, `setMediaItems`, Prev/Next, and a
+  Preload toggle — with the disk cache off so `PreloadConfig` is the only variable. Measures
+  transition-to-first-frame through Media3's `Player.Listener`, since `PlaybackListener.onPlayerReady`
+  fires once per `setMediaItem(s)` call rather than once per playlist transition
 - Added **ReelFeedActivity**: a vertical reel feed over the sample streams with a three-player pool,
   a Turbo toggle that A/B tests the 2.1.0 path against pre-2.1.0 behaviour, and a HUD reporting
   time-to-ready per swipe
