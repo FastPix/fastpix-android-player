@@ -23,6 +23,9 @@ A clean, modern Android video player SDK built on top of [AndroidX Media3 (ExoPl
 - **Video Quality Switching** – Get available video renditions, lock a specific quality, or return to ABR auto mode
 - **Subtitle and Audio Track Switching** – Discover and switch audio/subtitle tracks, set default languages, disable subtitles, and render subtitle cues via listeners
 - **Widevine DRM Playback** – Configure secure playback with `playbackToken` + `DrmConfig` for FastPix protected streams
+- **Fast Start** – Tuned buffering thresholds so the first frame appears sooner than Media3's defaults (configurable via `BufferConfig`)
+- **Disk Caching** – Opt-in read-through cache so re-watches and scroll-backs play from local storage
+- **Preloading & Pre-caching** – Warm upcoming feed items ahead of the user with `FastPixPreCacher`, or preload the next queued item with `PreloadConfig`
 
 ---
 
@@ -56,7 +59,7 @@ Add the following to your `build.gradle.kts` (or `build.gradle`):
 
 ```kotlin
 dependencies {
-    implementation("io.fastpix.player:android:2.0.1")
+    implementation("io.fastpix.player:android:2.1.0")
 }
 ```
 
@@ -64,7 +67,7 @@ Or if using version catalogs, add to `libs.versions.toml`:
 
 ```toml
 [versions]
-fastpix-player = "2.0.1"
+fastpix-player = "2.1.0"
 
 [libraries]
 fastpix-player = { module = "io.fastpix.player:android-player-sdk", version.ref = "fastpix-player" }
@@ -229,6 +232,143 @@ class MainActivity : AppCompatActivity() {
     }
 }
 ```
+
+---
+
+## Fast Start, Caching & Preloading
+
+Short-form feeds (reels, episodes) live or die on how fast the next item starts. Arriving at a cold
+item costs a TLS handshake, a multivariant playlist fetch, a media playlist fetch, and then the
+first segment — four sequential round trips before a frame can be decoded. The SDK gives you three
+independent levers; use as many as fit your feed.
+
+### 1. Fast start (on by default)
+
+Since 2.1.0 the player installs a tuned `LoadControl`: playback begins after 500 ms of buffered
+media rather than Media3's 1000 ms. Nothing to configure — but you can tune or opt out:
+
+```kotlin
+FastPixPlayer.Builder(context)
+    .setBufferConfig(BufferConfig.FEED)            // reel-tuned: start at 250 ms, shallow buffer
+    // .setBufferConfig(BufferConfig.MEDIA3_DEFAULT) // restore Media3's stock thresholds
+    .build()
+```
+
+| Preset | `bufferForPlaybackMs` | Ahead buffer | Use for |
+|---|---|---|---|
+| `BufferConfig.DEFAULT` | 500 ms | 50 s | General playback (applied automatically) |
+| `BufferConfig.FEED` | 250 ms | 20 s | Reel / short-form feeds |
+| `BufferConfig.MEDIA3_DEFAULT` | 1000 ms | 50 s | Restoring pre-2.1.0 behaviour |
+
+A shallower ahead-buffer is deliberate for feeds: a user who swipes after three seconds never
+watches the 50 seconds you downloaded, and that is the user's mobile data.
+
+### 2. Disk cache (opt-in)
+
+Persists downloaded segments so a re-watch — or a scroll back to an earlier item — plays from disk.
+
+```kotlin
+FastPixPlayer.Builder(context)
+    .setCacheConfig(CacheConfig.enabled())          // 256 MB, LRU-evicted
+    .build()
+```
+
+The cache is **process-wide**: every player in the app shares one store, and the first config to
+open it fixes the location and ceiling for the process. Inspect or reset it through
+`MediaCacheProvider.cachedBytes()`, `MediaCacheProvider.clear()`.
+
+Opening the cache reads its index from disk. The first `build()` with caching on does that work on
+the calling thread, so open it once at startup from a background thread to keep it off the main
+thread — every later call returns the already-open cache:
+
+```kotlin
+// Application.onCreate()
+Executors.newSingleThreadExecutor().execute {
+    MediaCacheProvider.getOrCreate(this, cacheConfig)
+}
+```
+
+By default HLS playlists are **not** cached, only the segments beneath them. This is what keeps live
+streams correct — a live media playlist is rewritten by the origin every few seconds, and serving a
+cached copy would pin the player to a segment list that no longer exists. If every stream in your
+app is on-demand, opt in and save two round trips per item:
+
+```kotlin
+.setCacheConfig(CacheConfig.forOnDemandFeed())      // caches playlists too — VOD only
+```
+
+### 3. Pre-caching upcoming items (opt-in)
+
+This is the one that removes the swipe delay. `FastPixPreCacher` warms the next items into the cache
+while the user is still watching the current one, using bandwidth that would otherwise sit idle.
+
+```kotlin
+// Once per feed — e.g. in your ViewModel or Application.
+private val cacheConfig = CacheConfig.forOnDemandFeed()
+private val preCacher = FastPixPreCacher.create(context, cacheConfig)
+
+// Every player in the feed must read from the same cache.
+val player = FastPixPlayer.Builder(context)
+    .setBufferConfig(BufferConfig.FEED)
+    .setCacheConfig(cacheConfig)
+    .setAutoplay(true)
+    .build()
+
+// Whenever the visible page changes, hand over the next few URLs.
+viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+    override fun onPageSelected(position: Int) {
+        preCacher?.preCache(
+            (position + 1..position + 2)
+                .mapNotNull { videos.getOrNull(it)?.playbackUrl }
+        )
+    }
+})
+
+// When the feed goes away.
+preCacher?.release()
+```
+
+`preCache(urls)` also **cancels** any in-flight warm whose URL is not in the list — so a download
+the user has already swiped past stops competing for bandwidth with the item now on screen. That is
+why you pass a window rather than one URL at a time.
+
+Tuning, if the defaults don't fit:
+
+```kotlin
+FastPixPreCacher.create(
+    context,
+    cacheConfig,
+    PreCacheConfig(
+        segmentCount = 2,                  // segments warmed per item
+        maxBytesPerItem = 2 * 1024 * 1024, // hard ceiling per item
+        targetBitrateBps = 1_200_000,      // which rendition to warm
+        maxParallelItems = 2,
+    ),
+)
+```
+
+**Warming only pays off if playback then picks the rendition you warmed.** ABR chooses from the
+measured bandwidth, so pin the ladder with `maxResolution` on your media items to keep the two from
+diverging. Note also that cache entries are keyed by full URL: a FastPix signed URL re-minted with a
+fresh `token` is a cache miss, so reuse the same signed URL for the life of its token.
+
+### 4. Next-item preload for queued playback (opt-in)
+
+If your feed is **one player holding a queue** rather than a player per page, ExoPlayer can preload
+the next item itself:
+
+```kotlin
+FastPixPlayer.Builder(context)
+    .setPreloadConfig(PreloadConfig.FEED)   // 5 s of the next queued item
+    .build()
+
+player.setMediaItems(mediaItems, startIndex = 0)
+```
+
+This only applies to media queued with `setMediaItems`. With one media item there is no next item
+and the setting does nothing — use `FastPixPreCacher` for the player-per-page shape. The two are
+complementary and can be enabled together.
+
 
 ---
 
