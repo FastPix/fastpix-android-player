@@ -32,6 +32,11 @@
 
         </activity>
 
+        <activity
+            android:name=".ReelFeedActivity"
+            android:configChanges="orientation|screenSize"
+            android:screenOrientation="portrait" />
+
     </application>
 
 </manifest>

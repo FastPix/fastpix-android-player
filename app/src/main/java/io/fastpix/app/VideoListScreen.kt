@@ -46,6 +46,10 @@ class VideoListScreen : AppCompatActivity() {
             startActivity(intent)
         }
 
+        binding.btnReelFeed.setOnClickListener {
+            startActivity(ReelFeedActivity.newIntent(this, turboEnabled = true))
+        }
+
         binding.btnComposePlayer.setOnClickListener {
             val firstVideo = dummyData[1]
             val intent = Intent(this, ComposePlayerActivity::class.java)

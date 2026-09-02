@@ -347,10 +347,29 @@ FastPixPreCacher.create(
 )
 ```
 
-**Warming only pays off if playback then picks the rendition you warmed.** ABR chooses from the
-measured bandwidth, so pin the ladder with `maxResolution` on your media items to keep the two from
-diverging. Note also that cache entries are keyed by full URL: a FastPix signed URL re-minted with a
-fresh `token` is a cache miss, so reuse the same signed URL for the life of its token.
+The pre-cacher walks the ladder the way the player will — multivariant playlist, chosen video
+variant, and the audio rendition that variant points at. That last part matters on FastPix streams,
+whose ladders are demuxed: the variant's segments carry video only (`video_270/1.m4s`) with sound in
+a separate `EXT-X-MEDIA` rendition, so warming video alone would still leave a cold round trip for
+audio. Set `includeAudioRendition = false` if your streams are muxed.
+
+**Warming only pays off if playback then picks the rendition you warmed.** ABR chooses from measured
+bandwidth, so on Wi-Fi it may ask for 1080p while the pre-cacher warmed 480p — a guaranteed miss.
+Pin both ends to the same ceiling:
+
+```kotlin
+val capBps = 1_650_000
+
+FastPixPlayer.Builder(context)
+    .setAbrConfig(
+        AbrConfig(wifiMaxBitrateBps = capBps, cellular5g4gMaxBitrateBps = capBps)
+    )
+    // ...
+FastPixPreCacher.create(context, cacheConfig, PreCacheConfig(targetBitrateBps = capBps))
+```
+
+Note also that cache entries are keyed by full URL: a FastPix signed URL re-minted with a fresh
+`token` is a cache miss, so reuse the same signed URL for the life of its token.
 
 ### 4. Next-item preload for queued playback (opt-in)
 
@@ -368,6 +387,16 @@ player.setMediaItems(mediaItems, startIndex = 0)
 This only applies to media queued with `setMediaItems`. With one media item there is no next item
 and the setting does nothing — use `FastPixPreCacher` for the player-per-page shape. The two are
 complementary and can be enabled together.
+
+### Measuring it
+
+The sample app ships a working reel feed for exactly this: **Reel Feed (preload / cache benchmark)**
+on the home screen. It is a vertical `ViewPager2` over the sample streams with a three-player pool,
+and a **Turbo** toggle that rebuilds the screen either with the 2.1.0 path (FEED buffering + disk
+cache + pre-caching) or with pre-2.1.0 behaviour (stock Media3 buffering, no cache, no warming). The
+HUD reports milliseconds from a page becoming current to the player reporting ready, and whether
+that item was pre-cached. See
+[`ReelFeedActivity`](app/src/main/java/io/fastpix/app/ReelFeedActivity.kt).
 
 
 ---

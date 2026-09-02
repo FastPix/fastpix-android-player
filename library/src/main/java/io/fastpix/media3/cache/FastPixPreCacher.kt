@@ -186,22 +186,26 @@ class FastPixPreCacher private constructor(
     }
 
     /**
-     * Walks the HLS ladder the way the player will: multivariant playlist, chosen media playlist,
-     * then the first segments of that rendition.
+     * Walks the HLS ladder the way the player will: multivariant playlist, chosen video variant,
+     * the audio rendition that variant points at, then the first segments of each.
      */
     private suspend fun warmHls(playlistUri: Uri, warm: Warm): Long {
         val playlist = parsePlaylist(playlistUri)
         coroutineContext.ensureActive()
 
+        var audioUri: Uri? = null
         val mediaPlaylist: HlsMediaPlaylist
         val mediaPlaylistUri: Uri
         when (playlist) {
             is HlsMultivariantPlaylist -> {
-                val variantUri = selectVariantUri(playlist)
+                val variant = selectVariant(playlist)
                     ?: throw IllegalStateException("No playable variant in $playlistUri")
-                mediaPlaylistUri = variantUri
-                mediaPlaylist = parsePlaylist(variantUri) as? HlsMediaPlaylist
-                    ?: throw IllegalStateException("$variantUri is not a media playlist")
+                mediaPlaylistUri = variant.url
+                mediaPlaylist = parsePlaylist(variant.url) as? HlsMediaPlaylist
+                    ?: throw IllegalStateException("${variant.url} is not a media playlist")
+                if (config.includeAudioRendition) {
+                    audioUri = selectAudioRenditionUri(playlist, variant)
+                }
             }
 
             is HlsMediaPlaylist -> {
@@ -219,23 +223,50 @@ class FastPixPreCacher private constructor(
             return 0L
         }
 
+        var written = warmMediaPlaylist(mediaPlaylist, mediaPlaylistUri, warm, config.maxBytesPerItem)
+
+        // A demuxed ladder gives the variant video-only segments; without the audio rendition the
+        // player still pays a cold round trip for sound the moment the item is shown.
+        val audioPlaylistUri = audioUri
+        if (audioPlaylistUri != null) {
+            coroutineContext.ensureActive()
+            val audioPlaylist = runCatching { parsePlaylist(audioPlaylistUri) }.getOrNull()
+            if (audioPlaylist is HlsMediaPlaylist && audioPlaylist.hasEndTag) {
+                written += warmMediaPlaylist(
+                    audioPlaylist,
+                    audioPlaylistUri,
+                    warm,
+                    config.maxAudioBytesPerItem,
+                )
+            }
+        }
+        return written
+    }
+
+    /** Warms the initialisation segment plus the first [PreCacheConfig.segmentCount] segments. */
+    private suspend fun warmMediaPlaylist(
+        mediaPlaylist: HlsMediaPlaylist,
+        mediaPlaylistUri: Uri,
+        warm: Warm,
+        budgetBytes: Long,
+    ): Long {
         val baseUri = mediaPlaylist.baseUri.ifEmpty { mediaPlaylistUri.toString() }
         var written = 0L
         var initSegmentDone = false
 
         for (segment in mediaPlaylist.segments.take(config.segmentCount)) {
             coroutineContext.ensureActive()
-            if (written >= config.maxBytesPerItem) break
+            if (written >= budgetBytes) break
 
             // fMP4 renditions need their initialisation segment before any media segment decodes.
             val initSegment = segment.initializationSegment
             if (!initSegmentDone && initSegment != null) {
-                written += cacheSegment(baseUri, initSegment, warm, config.maxBytesPerItem - written)
+                written += cacheSegment(baseUri, initSegment, warm, budgetBytes - written)
                 initSegmentDone = true
-                if (written >= config.maxBytesPerItem) break
+                if (written >= budgetBytes) break
             }
 
-            written += cacheSegment(baseUri, segment, warm, config.maxBytesPerItem - written)
+            written += cacheSegment(baseUri, segment, warm, budgetBytes - written)
         }
         return written
     }
@@ -301,13 +332,32 @@ class FastPixPreCacher private constructor(
      * Picks the rendition to warm: the highest variant at or below
      * [PreCacheConfig.targetBitrateBps], or the lowest on the ladder when every variant is above it.
      */
-    private fun selectVariantUri(playlist: HlsMultivariantPlaylist): Uri? {
+    private fun selectVariant(
+        playlist: HlsMultivariantPlaylist,
+    ): HlsMultivariantPlaylist.Variant? {
         val variants = playlist.variants.filter { it.format.bitrate != Format.NO_VALUE }
-        if (variants.isEmpty()) return playlist.variants.firstOrNull()?.url
+        if (variants.isEmpty()) return playlist.variants.firstOrNull()
         val atOrBelowTarget = variants.filter { it.format.bitrate <= config.targetBitrateBps }
-        val chosen = atOrBelowTarget.maxByOrNull { it.format.bitrate }
+        return atOrBelowTarget.maxByOrNull { it.format.bitrate }
             ?: variants.minByOrNull { it.format.bitrate }
-        return chosen?.url
+    }
+
+    /**
+     * Finds the audio rendition the chosen [variant] references. Renditions without a URI are
+     * muxed into the variant itself and need no separate warm.
+     */
+    private fun selectAudioRenditionUri(
+        playlist: HlsMultivariantPlaylist,
+        variant: HlsMultivariantPlaylist.Variant,
+    ): Uri? {
+        val groupId = variant.audioGroupId ?: return null
+        val candidates = playlist.audios.filter { it.groupId == groupId && it.url != null }
+        if (candidates.isEmpty()) return null
+        // Prefer the rendition the player would default to, falling back to the first in the group.
+        val default = candidates.firstOrNull { rendition ->
+            rendition.format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0
+        }
+        return (default ?: candidates.first()).url
     }
 
     private fun isHlsUri(uri: Uri): Boolean {

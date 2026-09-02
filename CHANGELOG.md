@@ -19,7 +19,9 @@ All notable changes to this project will be documented in this file.
   the player will (multivariant playlist → chosen media playlist → first segments), bounded by
   `PreCacheConfig.segmentCount` and `maxBytesPerItem`. `preCache(urls)` also cancels in-flight warms
   that have fallen out of the window, so a download the user swiped past stops competing with the
-  item on screen. Live streams are detected and skipped
+  item on screen. Live streams are detected and skipped. FastPix ladders are demuxed, so the audio
+  rendition referenced by the chosen variant is warmed alongside the video
+  (`PreCacheConfig.includeAudioRendition`, on by default)
 - **Next-item preloading** (`PreloadConfig`, opt-in): exposes ExoPlayer's own preloading via
   `FastPixPlayer.Builder.setPreloadConfig(...)`, for feeds that queue media with `setMediaItems`
 - **`BufferConfig`**: buffering thresholds are now configurable, with `BufferConfig.FEED` for
@@ -32,6 +34,11 @@ All notable changes to this project will be documented in this file.
   Pass `BufferConfig.MEDIA3_DEFAULT` to opt out
 - `FastPixPlayer.Builder.build()` installs a caching `MediaSource.Factory` only when a cache is
   configured and opened successfully; with caching off, player construction is unchanged
+
+### Sample app
+- Added **ReelFeedActivity**: a vertical reel feed over the sample streams with a three-player pool,
+  a Turbo toggle that A/B tests the 2.1.0 path against pre-2.1.0 behaviour, and a HUD reporting
+  time-to-ready per swipe
 
 ### Version
 - Library version bumped to `2.1.0` in `build.gradle.kts` and `FastPixPlayerLibraryInfo.PLAYER_VERSION`

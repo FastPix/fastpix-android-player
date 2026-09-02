@@ -30,6 +30,21 @@ data class PreCacheConfig(
     val targetBitrateBps: Int = 1_200_000,
 
     /**
+     * Whether the audio rendition referenced by the chosen video variant is warmed as well.
+     *
+     * FastPix ladders are usually demuxed — the variant's segments carry video only and audio comes
+     * from a separate `EXT-X-MEDIA` rendition. Warming just the video would leave the player making
+     * cold round trips for audio on arrival, so this defaults to on.
+     */
+    val includeAudioRendition: Boolean = true,
+
+    /**
+     * Byte ceiling for the audio rendition, budgeted separately from [maxBytesPerItem] so a large
+     * video segment cannot starve it. Audio segments are small; 512 KB covers several of them.
+     */
+    val maxAudioBytesPerItem: Long = 512L * 1024L,
+
+    /**
      * How many items are warmed concurrently. Warming competes with the *playing* item for
      * bandwidth, so keep this small.
      */
@@ -42,6 +57,9 @@ data class PreCacheConfig(
         require(segmentCount > 0) { "segmentCount must be > 0, was $segmentCount" }
         require(maxBytesPerItem > 0L) { "maxBytesPerItem must be > 0, was $maxBytesPerItem" }
         require(targetBitrateBps > 0) { "targetBitrateBps must be > 0, was $targetBitrateBps" }
+        require(maxAudioBytesPerItem > 0L) {
+            "maxAudioBytesPerItem must be > 0, was $maxAudioBytesPerItem"
+        }
         require(maxParallelItems > 0) { "maxParallelItems must be > 0, was $maxParallelItems" }
     }
 

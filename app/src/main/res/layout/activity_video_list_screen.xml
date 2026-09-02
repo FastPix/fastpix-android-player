@@ -88,6 +88,14 @@
                 android:layout_marginBottom="8dp"
                 android:text="Test Compose Player (first video)" />
 
+            <Button
+                android:id="@+id/btn_reel_feed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="16dp"
+                android:layout_marginBottom="8dp"
+                android:text="Reel Feed (preload / cache benchmark)" />
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

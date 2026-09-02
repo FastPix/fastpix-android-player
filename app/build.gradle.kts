@@ -53,6 +53,7 @@ dependencies {
     implementation(libs.androidx.activity)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.constraintlayout)
+    implementation(libs.androidx.viewpager2)
 
     // Compose
     implementation(platform(libs.androidx.compose.bom))
