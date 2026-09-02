@@ -9,6 +9,7 @@ import android.widget.FrameLayout
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import io.fastpix.media3.core.FastPixPlayer
+import io.fastpix.player.R
 import androidx.media3.ui.PlayerView as Media3PlayerView
 
 @UnstableApi
@@ -99,8 +100,25 @@ class PlayerView @JvmOverloads constructor(
      */
     private val gestureDetector: GestureDetector
 
+    /**
+     * How video is scaled inside this view.
+     *
+     * Defaults to [ResizeMode.FIT], which letterboxes content whose aspect ratio differs from the
+     * view's. Full-screen feeds usually want [ResizeMode.ZOOM] so a source of any shape fills the
+     * page, cropping the overflow.
+     *
+     * Can also be set in XML with `app:fastPixResizeMode="zoom"`.
+     */
+    var resizeMode: ResizeMode
+        get() = ResizeMode.fromMedia3(media3PlayerView.resizeMode)
+        set(value) {
+            media3PlayerView.resizeMode = value.media3Value
+        }
+
     init {
         addView(media3PlayerView)
+
+        applyResizeModeAttribute(attrs)
 
         // Setup gesture detector for tap-to-toggle
         gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -166,6 +184,29 @@ class PlayerView @JvmOverloads constructor(
                 media3PlayerView.player = value.getExoPlayer()
             }
         }
+
+    /**
+     * Applies `app:fastPixResizeMode` if the layout declares it.
+     *
+     * Only touched when explicitly present: the wrapped Media3 view receives the same
+     * [AttributeSet] and may already have resolved its own `resize_mode`, which we must not
+     * silently override.
+     */
+    private fun applyResizeModeAttribute(attrs: AttributeSet?) {
+        if (attrs == null) return
+        val typedArray = context.obtainStyledAttributes(attrs, R.styleable.FastPixPlayerView)
+        try {
+            if (typedArray.hasValue(R.styleable.FastPixPlayerView_fastPixResizeMode)) {
+                val value = typedArray.getInt(
+                    R.styleable.FastPixPlayerView_fastPixResizeMode,
+                    ResizeMode.FIT.media3Value,
+                )
+                resizeMode = ResizeMode.fromMedia3(value)
+            }
+        } finally {
+            typedArray.recycle()
+        }
+    }
 
     /**
      * Creates a new FastPixPlayer instance if one doesn't exist, or retrieves an existing

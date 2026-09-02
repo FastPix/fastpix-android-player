@@ -395,8 +395,8 @@ on the home screen. It is a vertical `ViewPager2` over the sample streams with a
 and a **Turbo** toggle that rebuilds the screen either with the 2.1.0 path (FEED buffering + disk
 cache + pre-caching) or with pre-2.1.0 behaviour (stock Media3 buffering, no cache, no warming). The
 HUD reports milliseconds from a page becoming current to the player reporting ready, and whether
-that item was pre-cached. See
-[`ReelFeedActivity`](app/src/main/java/io/fastpix/app/ReelFeedActivity.kt).
+that item was pre-cached. Its pages use `app:fastPixResizeMode="zoom"` so every source fills the
+screen. See [`ReelFeedActivity`](app/src/main/java/io/fastpix/app/ReelFeedActivity.kt).
 
 
 ---
@@ -559,6 +559,33 @@ playerView.setFastPixMediaItem {
     playbackToken = "your-token" // Optional, for secure playback
 }
 ```
+
+#### Video Scaling
+
+```kotlin
+playerView.resizeMode = ResizeMode.ZOOM   // fill the view, cropping the overflow
+```
+
+Or in XML:
+
+```xml
+<io.fastpix.media3.PlayerView
+    android:id="@+id/playerView"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    app:fastPixResizeMode="zoom" />
+```
+
+| Mode | Behaviour |
+|---|---|
+| `FIT` (default) | Scale to fit inside the view, letterboxing as needed |
+| `FIXED_WIDTH` | Match the view's width; height follows the content |
+| `FIXED_HEIGHT` | Match the view's height; width follows the content |
+| `FILL` | Stretch to fill, ignoring aspect ratio |
+| `ZOOM` | Fill while preserving aspect ratio, cropping the overflow |
+
+`FIT` is right for a general-purpose player, where cropping would hide content. Full-screen feeds
+normally want `ZOOM` so a source of any shape fills the page the way short-form apps present it.
 
 #### Playback Control
 

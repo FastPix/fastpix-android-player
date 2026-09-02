@@ -24,6 +24,10 @@ All notable changes to this project will be documented in this file.
   (`PreCacheConfig.includeAudioRendition`, on by default)
 - **Next-item preloading** (`PreloadConfig`, opt-in): exposes ExoPlayer's own preloading via
   `FastPixPlayer.Builder.setPreloadConfig(...)`, for feeds that queue media with `setMediaItems`
+- **`PlayerView.resizeMode`**: video scaling is now configurable through an SDK-level `ResizeMode`
+  enum (`FIT`, `FIXED_WIDTH`, `FIXED_HEIGHT`, `FILL`, `ZOOM`), in code or via the new
+  `app:fastPixResizeMode` XML attribute. Defaults to `FIT`, unchanged from before; feeds that want a
+  source of any shape to fill the page use `ZOOM`
 - **`BufferConfig`**: buffering thresholds are now configurable, with `BufferConfig.FEED` for
   short-form feeds and `BufferConfig.MEDIA3_DEFAULT` to restore Media3's stock values
 
