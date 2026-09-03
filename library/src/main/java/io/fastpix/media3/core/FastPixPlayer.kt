@@ -18,6 +18,7 @@ import androidx.media3.common.Format
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -28,6 +29,10 @@ import io.fastpix.media3.abr.NetworkMonitor
 import io.fastpix.media3.abr.PlaybackStallWatchdog
 import io.fastpix.media3.analytics.AnalyticsConfig
 import io.fastpix.media3.analytics.AnalyticsManager
+import io.fastpix.media3.buffer.BufferConfig
+import io.fastpix.media3.cache.CacheConfig
+import io.fastpix.media3.cache.MediaCacheProvider
+import io.fastpix.media3.preload.PreloadConfig
 import io.fastpix.media3.PlaybackListener
 import io.fastpix.media3.seekpreview.PlaybackUrlProvider
 import androidx.media3.common.text.CueGroup
@@ -62,7 +67,8 @@ class FastPixPlayer private constructor(
     initialLoop: Boolean = false,
     initialAutoplay: Boolean = false,
     private val seekPreviewConfig: SeekPreviewConfig? = null,
-    private val analyticsConfig: AnalyticsConfig? = null
+    private val analyticsConfig: AnalyticsConfig? = null,
+    private val preloadConfig: PreloadConfig = PreloadConfig.DISABLED
 ) {
 
     private val seekPreviewEnabled: Boolean = seekPreviewConfig?.enabled == true
@@ -91,6 +97,9 @@ class FastPixPlayer private constructor(
         private var seekPreviewConfig: SeekPreviewConfig? = null
         private var analyticsConfig: AnalyticsConfig? = null
         private var abrConfig: AbrConfig = AbrConfig.DEFAULT
+        private var bufferConfig: BufferConfig = BufferConfig.DEFAULT
+        private var cacheConfig: CacheConfig = CacheConfig.DISABLED
+        private var preloadConfig: PreloadConfig = PreloadConfig.DISABLED
 
         /**
          * Sets whether playback should loop when it reaches the end.
@@ -156,6 +165,58 @@ class FastPixPlayer private constructor(
         }
 
         /**
+         * Sets the buffering thresholds that decide how soon the first frame appears and how much
+         * media is held ahead of the playhead.
+         *
+         * Defaults to [BufferConfig.DEFAULT], which starts sooner than Media3's stock values. Use
+         * [BufferConfig.FEED] for reel-style feeds, or [BufferConfig.MEDIA3_DEFAULT] to restore
+         * Media3's behaviour exactly.
+         *
+         * @param config Buffering thresholds.
+         * @return This builder instance for method chaining.
+         */
+        fun setBufferConfig(config: BufferConfig): Builder {
+            this.bufferConfig = config
+            return this
+        }
+
+        /**
+         * Enables the read-through disk cache, so re-watching an item — or scrolling back to an
+         * earlier one in a feed — plays from local storage instead of the network.
+         *
+         * Off by default: caching writes to the user's device, which is the app's call. The cache
+         * is process-wide, so the first player to enable it fixes the location and size for the
+         * process. Pass the same [CacheConfig] to
+         * [io.fastpix.media3.cache.FastPixPreCacher.create] to warm upcoming items into the same
+         * store.
+         *
+         * The first [build] with caching enabled opens the cache index on the calling thread, which
+         * touches disk. To keep that off the main thread, open it once from a background thread at
+         * startup with [MediaCacheProvider.getOrCreate] — later calls just return the open cache.
+         *
+         * @param config Cache settings; [CacheConfig.DISABLED] to turn caching off.
+         * @return This builder instance for method chaining.
+         */
+        fun setCacheConfig(config: CacheConfig): Builder {
+            this.cacheConfig = config
+            return this
+        }
+
+        /**
+         * Enables preloading of the next item in the player's playlist.
+         *
+         * Only has an effect when media is queued through [FastPixPlayer.setMediaItems]. For a feed
+         * that gives each page its own player, use [io.fastpix.media3.cache.FastPixPreCacher].
+         *
+         * @param config Preload settings; [PreloadConfig.DISABLED] to turn preloading off.
+         * @return This builder instance for method chaining.
+         */
+        fun setPreloadConfig(config: PreloadConfig): Builder {
+            this.preloadConfig = config
+            return this
+        }
+
+        /**
          * Builds and returns a configured FastPixPlayer instance.
          *
          * @return A new FastPixPlayer instance with the configured settings.
@@ -178,10 +239,25 @@ class FastPixPlayer private constructor(
 
             val trackSelector = DefaultTrackSelector(context, trackSelectionFactory)
 
-            val exoPlayer = ExoPlayer.Builder(context)
+            val playerBuilder = ExoPlayer.Builder(context)
                 .setBandwidthMeter(bandwidthMeter)
                 .setTrackSelector(trackSelector)
-                .build()
+                .setLoadControl(bufferConfig.toLoadControl())
+
+            // The cache has to be installed at construction time: it lives underneath the
+            // MediaSource.Factory, which ExoPlayer.Builder freezes on build(). Returns null when
+            // caching is off or the cache could not be opened, in which case playback is
+            // byte-for-byte what it was before.
+            val cache = MediaCacheProvider.getOrCreate(context, cacheConfig)
+            if (cache != null) {
+                playerBuilder.setMediaSourceFactory(
+                    DefaultMediaSourceFactory(
+                        MediaCacheProvider.buildDataSourceFactory(context, cache, cacheConfig)
+                    )
+                )
+            }
+
+            val exoPlayer = playerBuilder.build()
 
             return FastPixPlayer(
                 context = context,
@@ -191,7 +267,8 @@ class FastPixPlayer private constructor(
                 initialLoop = loop,
                 initialAutoplay = autoplay,
                 seekPreviewConfig = seekPreviewConfig,
-                analyticsConfig = analyticsConfig
+                analyticsConfig = analyticsConfig,
+                preloadConfig = preloadConfig
             )
         }
     }
@@ -905,6 +982,9 @@ class FastPixPlayer private constructor(
         loop = initialLoop
         autoplay = initialAutoplay
 
+        // Preloading of the next playlist item; no-op unless the app queues media items.
+        applyPreloadConfiguration()
+
         // Initialize previous playback state
         previousPlaybackState = exoPlayer.playbackState
 
@@ -932,6 +1012,20 @@ class FastPixPlayer private constructor(
         networkMonitor.register()
         abrController.attach()
         stallWatchdog.attach()
+    }
+
+    /**
+     * Pushes [preloadConfig] to the underlying player. ExoPlayer then warms the next item in the
+     * playlist to the configured duration as the queue advances; with a single media item there is
+     * no next item and this has no effect.
+     */
+    private fun applyPreloadConfiguration() {
+        if (!preloadConfig.enabled) return
+        exoPlayer.setPreloadConfiguration(
+            ExoPlayer.PreloadConfiguration(
+                preloadConfig.targetPreloadDurationMs * 1_000L
+            )
+        )
     }
 
     /**

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Attributes for io.fastpix.media3.PlayerView. -->
+    <declare-styleable name="FastPixPlayerView">
+        <!--
+          How the video is scaled inside the view. Values mirror ResizeMode; the default is "fit".
+        -->
+        <attr name="fastPixResizeMode" format="enum">
+            <enum name="fit" value="0" />
+            <enum name="fixed_width" value="1" />
+            <enum name="fixed_height" value="2" />
+            <enum name="fill" value="3" />
+            <enum name="zoom" value="4" />
+        </attr>
+    </declare-styleable>
+
+</resources>

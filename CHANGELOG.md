@@ -2,6 +2,61 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0]
+
+### Added
+- **Read-through disk cache** (`CacheConfig`, opt-in): downloaded segments are persisted to disk, so
+  a re-watch — or a scroll back to an earlier item in a feed — plays from local storage instead of
+  the network. Enable with `FastPixPlayer.Builder.setCacheConfig(CacheConfig.enabled())`; bounded by
+  a hard byte ceiling (256 MB default) with LRU eviction. The cache is process-wide, since Media3
+  forbids two `SimpleCache` instances over one directory
+  - `MediaCacheProvider` owns the singleton and exposes `cachedBytes()`, `clear()`, and `release()`
+  - Manifests bypass the cache by default (`CacheConfig.cachePlaylists = false`) so a cached
+    playlist can never pin a **live** stream to a stale segment list. On-demand apps should opt in
+    with `CacheConfig.forOnDemandFeed()`: FastPix re-signs segment URLs on every media-playlist
+    fetch, so without a cached playlist the segments beneath it are addressed by URLs that were
+    never cached and no byte is ever reused across fetches. `FastPixPreCacher` logs a warning when
+    created against a cache that does not cache playlists
+  - Cache keys ignore `token`, `signature`, `expires` and `cdn`
+    (`CacheConfig.cacheKeyIgnoredQueryParameters`), so a stream re-requested with a freshly minted
+    token still hits. Content-selecting parameters such as `maxResolution` always remain in the key
+- **`FastPixPreCacher`** (opt-in): warms upcoming media into the cache before the user reaches it —
+  the fix for reel/episode feeds that give every page its own player. Walks the HLS ladder the way
+  the player will (multivariant playlist → chosen media playlist → first segments), bounded by
+  `PreCacheConfig.segmentCount` and `maxBytesPerItem`. `preCache(urls)` also cancels in-flight warms
+  that have fallen out of the window, so a download the user swiped past stops competing with the
+  item on screen. Live streams are detected and skipped. FastPix ladders are demuxed, so the audio
+  rendition referenced by the chosen variant is warmed alongside the video
+  (`PreCacheConfig.includeAudioRendition`, on by default)
+- **Next-item preloading** (`PreloadConfig`, opt-in): exposes ExoPlayer's own preloading via
+  `FastPixPlayer.Builder.setPreloadConfig(...)`, for feeds that queue media with `setMediaItems`
+- **`PlayerView.resizeMode`**: video scaling is now configurable through an SDK-level `ResizeMode`
+  enum (`FIT`, `FIXED_WIDTH`, `FIXED_HEIGHT`, `FILL`, `ZOOM`), in code or via the new
+  `app:fastPixResizeMode` XML attribute. Defaults to `FIT`, unchanged from before; feeds that want a
+  source of any shape to fill the page use `ZOOM`
+- **`BufferConfig`**: buffering thresholds are now configurable, with `BufferConfig.FEED` for
+  short-form feeds and `BufferConfig.MEDIA3_DEFAULT` to restore Media3's stock values
+
+### Changed
+- **Faster first frame by default**: the player now installs a tuned `LoadControl` instead of
+  Media3's stock one. `bufferForPlaybackMs` drops from 1000 ms to 500 ms and
+  `bufferForPlaybackAfterRebufferMs` from 2000 ms to 1500 ms; ahead-buffer sizing is unchanged.
+  Pass `BufferConfig.MEDIA3_DEFAULT` to opt out
+- `FastPixPlayer.Builder.build()` installs a caching `MediaSource.Factory` only when a cache is
+  configured and opened successfully; with caching off, player construction is unchanged
+
+### Sample app
+- Added **EpisodeFeedActivity**: the queue shape — one player, `setMediaItems`, Prev/Next, and a
+  Preload toggle — with the disk cache off so `PreloadConfig` is the only variable. Measures
+  transition-to-first-frame through Media3's `Player.Listener`, since `PlaybackListener.onPlayerReady`
+  fires once per `setMediaItem(s)` call rather than once per playlist transition
+- Added **ReelFeedActivity**: a vertical reel feed over the sample streams with a three-player pool,
+  a Turbo toggle that A/B tests the 2.1.0 path against pre-2.1.0 behaviour, and a HUD reporting
+  time-to-ready per swipe
+
+### Version
+- Library version bumped to `2.1.0` in `build.gradle.kts` and `FastPixPlayerLibraryInfo.PLAYER_VERSION`
+
 ## [2.0.1]
 
 ### Updates:
