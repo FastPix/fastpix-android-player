@@ -70,7 +70,7 @@ Or if using version catalogs, add to `libs.versions.toml`:
 fastpix-player = "2.1.0"
 
 [libraries]
-fastpix-player = { module = "io.fastpix.player:android-player-sdk", version.ref = "fastpix-player" }
+fastpix-player = { module = "io.fastpix.player:android", version.ref = "fastpix-player" }
 ```
 
 ### Step 3: Sync Gradle
