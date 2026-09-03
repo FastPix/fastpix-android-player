@@ -17,6 +17,7 @@
             android:orientation="vertical">
 
             <LinearLayout
+                android:visibility="gone"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginHorizontal="16dp"
@@ -70,6 +71,7 @@
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/recycler_view"
+                android:visibility="gone"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:nestedScrollingEnabled="true"
@@ -81,6 +83,7 @@
 
 
             <Button
+                android:visibility="gone"
                 android:id="@+id/btn_compose_player"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -105,6 +108,7 @@
                 android:text="Episode Feed (queue + next-item preload)" />
 
             <LinearLayout
+                android:visibility="gone"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="50dp"

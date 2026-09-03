@@ -13,6 +13,7 @@
             android:orientation="vertical" />
 
         <TextView
+            android:layout_marginTop="?actionBarSize"
             android:id="@+id/tvHud"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
