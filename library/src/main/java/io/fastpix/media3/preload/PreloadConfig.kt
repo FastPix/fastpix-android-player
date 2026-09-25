@@ -1,47 +1,88 @@
 package io.fastpix.media3.preload
 
 /**
- * Enables ExoPlayer's built-in preloading of the **next item in the player's own playlist**.
+ * How many playlist entries around the current one the player prepares ahead of time, so moving to
+ * them starts without waiting on the network.
  *
- * This only does something when the app queues media with
- * [io.fastpix.media3.core.FastPixPlayer.setMediaItems] — one player holding the feed as a queue.
- * A feed that gives every page its own player and calls
- * [io.fastpix.media3.core.FastPixPlayer.setMediaItem] has no "next item" from the engine's point of
- * view; use [io.fastpix.media3.cache.FastPixPreCacher] for that shape instead. The two can be used
- * together.
+ * ```kotlin
+ * FastPixPlayer.Builder(context)
+ *     .setPreloadConfig(PreloadConfig(count = 3))             // the next 3 entries
+ *     .build()
  *
- * Preloaded data is held by the player and, when the disk cache is on, also written through to it.
+ * FastPixPlayer.Builder(context)
+ *     .setPreloadConfig(PreloadConfig(count = 3, behind = 1)) // and the previous one, for going back
+ *     .build()
+ * ```
+ *
+ * Acts on the playlist set with [io.fastpix.media3.core.FastPixPlayer.setPlaylist]; a single item
+ * set with `setMediaItem` has nothing around it to preload.
+ *
+ * What the SDK does for each entry in range:
+ * - **Adjacent entries** (one step away) have their first seconds buffered in memory, so they can
+ *   start almost immediately.
+ * - **Entries further out** have their playlists fetched and tracks chosen — little memory, but
+ *   it removes the round trips before the first segment request.
+ * - **With the disk cache on** ([io.fastpix.media3.cache.CacheConfig]), entries further out also
+ *   have their first segments written to disk, in the rendition playback will pick.
+ *
+ * Off by default: preloading spends the user's data on entries they may never reach.
  */
 data class PreloadConfig(
-    /** Whether the next playlist item is preloaded. Off by default. */
-    val enabled: Boolean = false,
+    /** Entries after the current one to preload. 0 turns look-ahead off. */
+    val count: Int = 0,
 
-    /**
-     * How much of the next item to preload, in milliseconds of media. Larger values start the next
-     * item faster and cost more of the user's data if they never reach it.
-     */
-    val targetPreloadDurationMs: Long = 3_000L,
+    /** Entries before the current one to keep preloaded, for going back. 0 by default. */
+    val behind: Int = 0,
 ) {
     init {
+        require(count >= 0) { "count must be >= 0, was $count" }
+        require(behind >= 0) { "behind must be >= 0, was $behind" }
+    }
+
+    /**
+     * How much of an adjacent entry is buffered in memory. Fixed by the SDK; only the deprecated
+     * constructor sets it.
+     */
+    internal var bufferedDurationMs: Long = DEFAULT_BUFFERED_DURATION_MS
+        private set
+
+    /** Pre-2.2.0 form: preloads the next entry only, buffering [targetPreloadDurationMs] of it. */
+    @Deprecated(
+        message = "Use PreloadConfig(count = 1). The buffered amount is managed by the SDK.",
+        replaceWith = ReplaceWith("PreloadConfig(count = if (enabled) 1 else 0)"),
+    )
+    constructor(
+        enabled: Boolean,
+        targetPreloadDurationMs: Long = DEFAULT_BUFFERED_DURATION_MS,
+    ) : this(count = if (enabled) 1 else 0) {
         require(targetPreloadDurationMs > 0L) {
             "targetPreloadDurationMs must be > 0, was $targetPreloadDurationMs"
         }
+        bufferedDurationMs = targetPreloadDurationMs
     }
 
+    /** Whether anything is preloaded. */
+    val enabled: Boolean get() = count > 0 || behind > 0
+
+    @Deprecated("The buffered amount is managed by the SDK.")
+    val targetPreloadDurationMs: Long get() = bufferedDurationMs
+
     companion object {
+        internal const val DEFAULT_BUFFERED_DURATION_MS: Long = 3_000L
+
         /** Preloading off — the SDK's default. */
         @JvmField
-        val DISABLED: PreloadConfig = PreloadConfig(enabled = false)
+        val DISABLED: PreloadConfig = PreloadConfig()
 
-        /** Preloading on with the default 3 s target. */
+        /** The next entry. */
+        @Deprecated("Use PreloadConfig(count = 1).", ReplaceWith("PreloadConfig(count = 1)"))
         @JvmField
-        val ENABLED: PreloadConfig = PreloadConfig(enabled = true)
+        val ENABLED: PreloadConfig = PreloadConfig(count = 1)
 
-        /**
-         * Short-form feed: preload 5 s of the next reel. Reels are small, so a generous target is
-         * cheap and covers the whole visible portion of a quick swipe-through.
-         */
+        /** The next entry, with 5 s of it buffered. */
+        @Deprecated("Use PreloadConfig(count = 1).", ReplaceWith("PreloadConfig(count = 1)"))
         @JvmField
+        @Suppress("DEPRECATION")
         val FEED: PreloadConfig = PreloadConfig(enabled = true, targetPreloadDurationMs = 5_000L)
     }
 }

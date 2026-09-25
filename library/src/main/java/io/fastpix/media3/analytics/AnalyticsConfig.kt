@@ -21,14 +21,29 @@ import io.fastpix.media3.PlayerView
  * ```
  *
  * Mandatory (set in builder constructor):
- * - [playerView] The FastPix PlayerView used for playback.
  * - [workSpaceId] FastPix workspace ID for data collection.
+ *
+ * Optional:
+ * - [playerView] The FastPix PlayerView used for playback. Leave it out when the player is shown
+ *   in different views over time — the pages of a feed with
+ *   [io.fastpix.media3.playlist.FastPixPlayerPool], say — and each view is measured through
+ *   whichever [PlayerView] is showing the player at the time:
+ *   `AnalyticsConfig.Builder("your-workspace-id").build()`.
+ *
+ * **One view per video watched.** A view begins when a video becomes the one being watched — set
+ * with `setMediaItem`, reached in a playlist, or made current in a pool — and ends when playback
+ * moves to another. Entries that are only preloaded or pre-rendered are never reported. Give each
+ * playlist entry its own metadata with [io.fastpix.media3.playlist.PlaylistItem.withVideoData];
+ * [videoDataDetails] here is the fallback for entries without any.
+ *
+ * The FastPix Data SDK reports one view at a time per app: starting a view on one player ends any
+ * view still open on another.
  */
 @UnstableApi
 data class AnalyticsConfig internal constructor(
     val videoDataDetails: VideoDataDetails?,
     val customDataDetails: CustomDataDetails?,
-    val playerView: PlayerView,
+    val playerView: PlayerView?,
     val workSpaceId: String,
     val enabled: Boolean,
     val beaconDomain: String?
@@ -36,13 +51,17 @@ data class AnalyticsConfig internal constructor(
     /**
      * Builder for [AnalyticsConfig].
      *
-     * @param playerView The [PlayerView] that displays playback. Mandatory.
+     * @param playerView The [PlayerView] that displays playback, or null to measure through
+     *   whichever [PlayerView] shows the player.
      * @param workSpaceId FastPix workspace ID. Mandatory; must not be blank.
      */
     class Builder(
-        private val playerView: PlayerView,
+        private val playerView: PlayerView?,
         private val workSpaceId: String
     ) {
+        /** Measures through whichever [PlayerView] is showing the player — for feeds and pools. */
+        constructor(workSpaceId: String) : this(null, workSpaceId)
+
         private var videoDataDetails: VideoDataDetails? = null
         private var customDataDetails: CustomDataDetails? = null
         private var enabled: Boolean = true

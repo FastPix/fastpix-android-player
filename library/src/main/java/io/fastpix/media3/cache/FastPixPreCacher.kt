@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package io.fastpix.media3.cache
 
 import android.content.Context
@@ -12,6 +14,7 @@ import androidx.media3.datasource.DataSourceUtil
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.Cache
+import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
@@ -34,6 +37,11 @@ import kotlin.coroutines.coroutineContext
 /**
  * Warms upcoming media into the disk cache so that swiping to the next item in a feed starts from
  * local bytes instead of a cold network fetch.
+ *
+ * **Deprecated since 2.2.0.** Set the feed as a playlist with
+ * [io.fastpix.media3.core.FastPixPlayer.setPlaylist] and turn on
+ * [io.fastpix.media3.preload.PreloadConfig]: the player then decides what to warm, and with the
+ * cache enabled writes upcoming entries to disk in the rendition it will actually play.
  *
  * Without warming, arriving at a new item costs a TLS handshake, a multivariant playlist fetch, a
  * media playlist fetch, and then the first segment — four sequential round trips before a frame can
@@ -59,6 +67,10 @@ import kotlin.coroutines.coroutineContext
  * failed warm must never affect playback.
  */
 @UnstableApi
+@Deprecated(
+    "Use a playlist with FastPixPlayer.Builder.setPreloadConfig(PreloadConfig(count = N)); with " +
+            "the cache enabled, upcoming entries are written to disk automatically.",
+)
 class FastPixPreCacher private constructor(
     context: Context,
     cache: Cache,
@@ -67,9 +79,20 @@ class FastPixPreCacher private constructor(
 ) {
 
     private val appContext: Context = context.applicationContext
-    private val cacheFactory =
-        MediaCacheProvider.cacheDataSourceFactory(appContext, cache, cacheConfig)
+    private val cache: Cache = cache
     private val upstreamFactory = DefaultDataSource.Factory(appContext)
+
+    /**
+     * Bitrate the warmed rendition is chosen against, when supplied by the player that will play
+     * it — which knows its current cap and bandwidth estimate. Falls back to
+     * [PreCacheConfig.targetBitrateBps].
+     */
+    @Volatile
+    internal var targetBitrateProvider: (() -> Int)? = null
+
+    /** Cache-backed data source keyed for [itemKey]'s asset (see [FastPixCacheKeyFactory]). */
+    private fun cacheFactoryFor(itemKey: String?) =
+        MediaCacheProvider.cacheDataSourceFactory(appContext, cache, cacheConfig, itemKey)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gate = Semaphore(config.maxParallelItems)
@@ -108,19 +131,29 @@ class FastPixPreCacher private constructor(
      * Safe to call on the main thread; all work happens on [Dispatchers.IO].
      */
     fun preCache(urls: List<String>) {
-        if (released) return
-        val keep = urls.toSet()
-        for (url in inFlight.keys.toList()) {
-            if (url !in keep) cancel(url)
-        }
-        for (url in urls) {
-            start(url)
-        }
+        warm(urls.map { it to FastPixItemKeys.fromStreamUrl(it) })
     }
 
     /** [preCache] for media items already built — items with no URI are skipped. */
     fun preCacheMediaItems(mediaItems: List<MediaItem>) {
-        preCache(mediaItems.mapNotNull { it.localConfiguration?.uri?.toString() })
+        warm(
+            mediaItems.mapNotNull { item ->
+                val url = item.localConfiguration?.uri?.toString() ?: return@mapNotNull null
+                url to FastPixItemKeys.itemKey(item)
+            }
+        )
+    }
+
+    /** Warms each (url, asset key) pair and cancels in-flight warms not in the list. */
+    private fun warm(targets: List<Pair<String, String?>>) {
+        if (released) return
+        val keep = targets.mapTo(HashSet()) { it.first }
+        for (url in inFlight.keys.toList()) {
+            if (url !in keep) cancel(url)
+        }
+        for ((url, itemKey) in targets) {
+            start(url, itemKey)
+        }
     }
 
     /** Stops warming [url] if it is in flight. Already-cached bytes are kept. */
@@ -148,7 +181,7 @@ class FastPixPreCacher private constructor(
         scope.cancel()
     }
 
-    private fun start(url: String) {
+    private fun start(url: String, itemKey: String?) {
         if (url.isBlank() || isWarm(url) || inFlight.containsKey(url)) return
 
         val warm = Warm()
@@ -159,7 +192,7 @@ class FastPixPreCacher private constructor(
             try {
                 gate.withPermit {
                     ensureActive()
-                    val bytes = warmUrl(url, warm)
+                    val bytes = warmUrl(url, itemKey, warm)
                     synchronized(warmed) { warmed[url] = true }
                     log("warmed $url ($bytes bytes)")
                     listener?.onPreCached(url, bytes)
@@ -181,8 +214,9 @@ class FastPixPreCacher private constructor(
         job.start()
     }
 
-    private suspend fun warmUrl(url: String, warm: Warm): Long {
+    private suspend fun warmUrl(url: String, itemKey: String?, warm: Warm): Long {
         val uri = Uri.parse(url)
+        warm.cacheFactory = cacheFactoryFor(itemKey)
         return if (isHlsUri(uri)) warmHls(uri, warm) else warmProgressive(uri, warm)
     }
 
@@ -191,7 +225,7 @@ class FastPixPreCacher private constructor(
      * the audio rendition that variant points at, then the first segments of each.
      */
     private suspend fun warmHls(playlistUri: Uri, warm: Warm): Long {
-        val playlist = parsePlaylist(playlistUri)
+        val playlist = parsePlaylist(playlistUri, warm)
         coroutineContext.ensureActive()
 
         var audioUri: Uri? = null
@@ -202,7 +236,7 @@ class FastPixPreCacher private constructor(
                 val variant = selectVariant(playlist)
                     ?: throw IllegalStateException("No playable variant in $playlistUri")
                 mediaPlaylistUri = variant.url
-                mediaPlaylist = parsePlaylist(variant.url) as? HlsMediaPlaylist
+                mediaPlaylist = parsePlaylist(variant.url, warm) as? HlsMediaPlaylist
                     ?: throw IllegalStateException("${variant.url} is not a media playlist")
                 if (config.includeAudioRendition) {
                     audioUri = selectAudioRenditionUri(playlist, variant)
@@ -231,7 +265,7 @@ class FastPixPreCacher private constructor(
         val audioPlaylistUri = audioUri
         if (audioPlaylistUri != null) {
             coroutineContext.ensureActive()
-            val audioPlaylist = runCatching { parsePlaylist(audioPlaylistUri) }.getOrNull()
+            val audioPlaylist = runCatching { parsePlaylist(audioPlaylistUri, warm) }.getOrNull()
             if (audioPlaylist is HlsMediaPlaylist && audioPlaylist.hasEndTag) {
                 written += warmMediaPlaylist(
                     audioPlaylist,
@@ -303,7 +337,7 @@ class FastPixPreCacher private constructor(
     private fun cache(dataSpec: DataSpec, warm: Warm): Long {
         var written = 0L
         val writer = CacheWriter(
-            cacheFactory.createDataSourceForDownloading(),
+            warm.cacheFactory!!.createDataSourceForDownloading(),
             dataSpec,
             null,
         ) { _, bytesCached, _ -> written = bytesCached }
@@ -317,8 +351,9 @@ class FastPixPreCacher private constructor(
     }
 
     /** Fetches and parses a playlist, honouring [CacheConfig.cachePlaylists] for where it lands. */
-    private fun parsePlaylist(uri: Uri): HlsPlaylist {
-        val factory = if (cacheConfig.cachePlaylists) cacheFactory else upstreamFactory
+    @Suppress("DEPRECATION")
+    private fun parsePlaylist(uri: Uri, warm: Warm): HlsPlaylist {
+        val factory = if (cacheConfig.cachePlaylists) warm.cacheFactory!! else upstreamFactory
         val dataSource = factory.createDataSource()
         val bytes = try {
             dataSource.open(DataSpec(uri))
@@ -338,7 +373,8 @@ class FastPixPreCacher private constructor(
     ): HlsMultivariantPlaylist.Variant? {
         val variants = playlist.variants.filter { it.format.bitrate != Format.NO_VALUE }
         if (variants.isEmpty()) return playlist.variants.firstOrNull()
-        val atOrBelowTarget = variants.filter { it.format.bitrate <= config.targetBitrateBps }
+        val target = targetBitrateProvider?.invoke() ?: config.targetBitrateBps
+        val atOrBelowTarget = variants.filter { it.format.bitrate <= target }
         return atOrBelowTarget.maxByOrNull { it.format.bitrate }
             ?: variants.minByOrNull { it.format.bitrate }
     }
@@ -375,6 +411,10 @@ class FastPixPreCacher private constructor(
         @Volatile
         var job: Job? = null
 
+        /** Cache-backed source keyed for the asset being warmed; set before any download. */
+        @Volatile
+        var cacheFactory: CacheDataSource.Factory? = null
+
         @Volatile
         var currentWriter: CacheWriter? = null
 
@@ -408,19 +448,21 @@ class FastPixPreCacher private constructor(
             config: PreCacheConfig = PreCacheConfig.DEFAULT,
         ): FastPixPreCacher? {
             val cache = MediaCacheProvider.getOrCreate(context, cacheConfig) ?: return null
-            if (!cacheConfig.cachePlaylists) {
-                // FastPix re-signs segment URLs on every media-playlist fetch, so unless the
-                // playlist itself is cached, playback asks for URLs this warm never wrote and
-                // every warmed byte is dead. Loud, because the failure is otherwise invisible:
-                // pre-caching appears to work and simply never helps.
-                Log.w(
-                    TAG,
-                    "Pre-caching with CacheConfig.cachePlaylists=false. Segment URLs are re-signed " +
-                            "per playlist fetch, so warmed segments will not be read back by " +
-                            "playback. Use CacheConfig.forOnDemandFeed() for on-demand feeds.",
-                )
-            }
             return FastPixPreCacher(context, cache, cacheConfig, config)
         }
+
+        /**
+         * The warmer a player uses for its own preloading: [targetBitrate] tracks the rendition
+         * that player will pick, and failures stay silent.
+         */
+        internal fun forPlayer(
+            context: Context,
+            cache: Cache,
+            cacheConfig: CacheConfig,
+            targetBitrate: () -> Int,
+        ): FastPixPreCacher =
+            FastPixPreCacher(context, cache, cacheConfig, PreCacheConfig.DEFAULT).apply {
+                targetBitrateProvider = targetBitrate
+            }
     }
 }

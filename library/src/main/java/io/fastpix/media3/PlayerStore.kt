@@ -34,6 +34,12 @@ internal object PlayerStore {
      * - PlayerView is destroyed without an ID (cannot be recovered)
      */
     private val players = SparseArray<FastPixPlayer>()
+
+    /**
+     * View ids whose stored player was created by the view itself rather than assigned by the app.
+     * Only those may be released by the view; a player the app assigned is the app's to release.
+     */
+    private val viewOwnedIds = mutableSetOf<Int>()
     
     /**
      * Retrieves an existing player instance for the given view ID, or null if not found.
@@ -51,10 +57,15 @@ internal object PlayerStore {
      *
      * @param viewId The view ID to associate with the player.
      * @param player The FastPixPlayer instance to store.
+     * @param ownedByView Whether the view created [player] itself, and so may release it.
      */
-    fun putPlayer(viewId: Int, player: FastPixPlayer?) {
+    fun putPlayer(viewId: Int, player: FastPixPlayer?, ownedByView: Boolean = true) {
         players.put(viewId, player)
+        if (ownedByView) viewOwnedIds.add(viewId) else viewOwnedIds.remove(viewId)
     }
+
+    /** Whether the player stored under [viewId] was created by the view rather than the app. */
+    fun isOwnedByView(viewId: Int): Boolean = viewId in viewOwnedIds
     
     /**
      * Removes a player instance from the store.
@@ -66,6 +77,7 @@ internal object PlayerStore {
     fun removePlayer(viewId: Int): FastPixPlayer? {
         val player = players.get(viewId)
         players.remove(viewId)
+        viewOwnedIds.remove(viewId)
         return player
     }
     
@@ -95,6 +107,7 @@ internal object PlayerStore {
         
         // Clear storage
         players.clear()
+        viewOwnedIds.clear()
     }
 }
 

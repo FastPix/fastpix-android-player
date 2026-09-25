@@ -371,7 +371,7 @@ class ReelFeedActivity : AppCompatActivity() {
         private const val PRECACHE_AHEAD = 2
 
         /** Playback ID kept out of the feed. */
-        private const val EXCLUDED_PLAYBACK_ID = "112a2222-0f31-44a0-bcf6-30cfa6e1d17d"
+        internal const val EXCLUDED_PLAYBACK_ID = "112a2222-0f31-44a0-bcf6-30cfa6e1d17d"
 
 
         /**

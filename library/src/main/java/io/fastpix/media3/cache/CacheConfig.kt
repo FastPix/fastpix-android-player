@@ -19,9 +19,11 @@ import java.io.File
  * on-disk store (Media3 forbids two `SimpleCache` instances over the same folder), so the first
  * config to reach [MediaCacheProvider] wins for the life of the process.
  *
- * Cache entries are keyed by full playback URL. FastPix signed URLs carry a `token` query
- * parameter, so a stream re-fetched with a freshly minted token is a cache miss. Reuse the same
- * signed URL for the lifetime of its token to get the benefit.
+ * Safe for any content, live included. FastPix streams are keyed by asset rather than by signed
+ * URL, so their segments are reused across sessions and token refreshes without caching playlists.
+ *
+ * Combine with [io.fastpix.media3.preload.PreloadConfig] and upcoming playlist entries are written
+ * to disk before the user reaches them.
  */
 data class CacheConfig(
     /** Whether the disk cache is active. Off by default. */
@@ -36,21 +38,12 @@ data class CacheConfig(
     /**
      * Whether HLS playlists (`.m3u8`) are cached alongside media segments.
      *
-     * **Off by default, and only safe for on-demand content.** A live media playlist is rewritten
-     * by the origin every few seconds; serving a cached copy would pin the player to a stale
-     * segment list.
-     *
-     * **On FastPix, turning this on is what makes segment caching work at all.** The origin
-     * re-signs segment URLs on every media-playlist fetch — the same segment comes back as
-     * `.../<new-signature-blob>/video_270/1.m4s` each time — so if the playlist is re-fetched, the
-     * segments beneath it are addressed by URLs that were never cached, and every warmed or
-     * previously downloaded byte is unreachable. Caching the playlist pins one set of segment URLs,
-     * and the segments under it then hit. It also saves two round trips per item.
-     *
-     * So: on-demand feeds should use [forOnDemandFeed]. Leave this off only when live streams may
-     * be played in the same process, accepting that segment reuse is then limited to a single
-     * continuous playback.
+     * **Deprecated since 2.2.0 — leave it off.** It was needed because FastPix re-signs segment URLs
+     * on every playlist fetch; the cache now keys FastPix segments by asset, so they hit without it.
+     * Turning it on is only safe for on-demand content: a cached live playlist pins the player to a
+     * stale segment list.
      */
+    @Deprecated("No longer needed: FastPix segments are cached by asset. Leave off.")
     val cachePlaylists: Boolean = false,
 
     /**
@@ -103,11 +96,15 @@ data class CacheConfig(
             CacheConfig(enabled = true, maxBytes = maxBytes)
 
         /**
-         * Cache on and tuned for an on-demand reel / episode feed: playlists cached too, since
-         * every item in such a feed is VOD.
+         * Cache on with playlists cached too, which on-demand feeds needed before 2.2.0.
          */
+        @Deprecated(
+            "Playlist caching is no longer needed for FastPix segments to hit. Use enabled().",
+            ReplaceWith("CacheConfig.enabled(maxBytes)"),
+        )
         @JvmStatic
         @JvmOverloads
+        @Suppress("DEPRECATION")
         fun forOnDemandFeed(maxBytes: Long = DEFAULT_MAX_BYTES): CacheConfig =
             CacheConfig(enabled = true, maxBytes = maxBytes, cachePlaylists = true)
     }

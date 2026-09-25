@@ -46,6 +46,18 @@
             android:exported="true"
             android:configChanges="orientation|screenSize" />
 
+        <activity
+            android:name=".feed.ViewPagerFeedActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ComposeReelFeedActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize"
+            android:screenOrientation="portrait" />
+
     </application>
 
 </manifest>

@@ -22,6 +22,9 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.preload.DefaultPreloadManager
+import androidx.media3.exoplayer.upstream.BandwidthMeter
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import io.fastpix.media3.abr.AbrConfig
 import io.fastpix.media3.abr.NetworkAwareAbrController
@@ -29,11 +32,28 @@ import io.fastpix.media3.abr.NetworkMonitor
 import io.fastpix.media3.abr.PlaybackStallWatchdog
 import io.fastpix.media3.analytics.AnalyticsConfig
 import io.fastpix.media3.analytics.AnalyticsManager
+import io.fastpix.media3.analytics.AnalyticsSessions
+import io.fastpix.data.domain.model.VideoDataDetails
 import io.fastpix.media3.buffer.BufferConfig
 import io.fastpix.media3.cache.CacheConfig
+import io.fastpix.media3.cache.FastPixItemKeys
+import io.fastpix.media3.cache.ItemScopedMediaSourceFactory
 import io.fastpix.media3.cache.MediaCacheProvider
+import io.fastpix.media3.preload.PlaylistPreloader
 import io.fastpix.media3.preload.PreloadConfig
+import io.fastpix.media3.preload.PreloadPolicy
+import io.fastpix.media3.preload.PreloadSetup
+import io.fastpix.media3.preload.PreloadWindow
+import io.fastpix.media3.prerender.DecoderBudget
+import io.fastpix.media3.prerender.PrerenderConfig
+import io.fastpix.media3.prerender.PrerenderSurfaceHost
+import io.fastpix.media3.prerender.SingleViewPrerenderer
+import androidx.media3.exoplayer.DecoderCounters
 import io.fastpix.media3.PlaybackListener
+import io.fastpix.media3.playlist.PlaylistItem
+import io.fastpix.media3.playlist.PlaylistItemChangeReason
+import io.fastpix.media3.playlist.PlaylistListener
+import io.fastpix.media3.playlist.PlaylistQueue
 import io.fastpix.media3.seekpreview.PlaybackUrlProvider
 import androidx.media3.common.text.CueGroup
 import io.fastpix.media3.tracks.AudioTrack
@@ -56,6 +76,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.math.abs
 
 @UnstableApi
@@ -68,15 +89,23 @@ class FastPixPlayer private constructor(
     initialAutoplay: Boolean = false,
     private val seekPreviewConfig: SeekPreviewConfig? = null,
     private val analyticsConfig: AnalyticsConfig? = null,
-    private val preloadConfig: PreloadConfig = PreloadConfig.DISABLED
+    private val bandwidthMeter: BandwidthMeter,
+    preloadSetup: PreloadSetup? = null,
+    /** Preload track selectors shared through a [io.fastpix.media3.playlist.FastPixPlayerPool]. */
+    sharedPreloadTrackSelectors: List<DefaultTrackSelector> = emptyList(),
 ) {
 
     private val seekPreviewEnabled: Boolean = seekPreviewConfig?.enabled == true
 
+    /** The [io.fastpix.media3.PlayerView] currently showing this player, if any. */
+    private var displayingView: io.fastpix.media3.PlayerView? = null
+
     /**
-     * Analytics manager; non-null only when [analyticsConfig] is set and enabled.
+     * A view to begin as soon as a [io.fastpix.media3.PlayerView] shows this player: analytics
+     * measures through a view, and none was available when the video started.
      */
-    private var analyticsManager: AnalyticsManager? = null
+    private var pendingAnalyticsView = false
+    private var pendingAnalyticsVideoData: VideoDataDetails? = null
 
     /**
      * Builder class for creating FastPixPlayer instances with configuration.
@@ -96,10 +125,13 @@ class FastPixPlayer private constructor(
         private var autoplay: Boolean = false
         private var seekPreviewConfig: SeekPreviewConfig? = null
         private var analyticsConfig: AnalyticsConfig? = null
-        private var abrConfig: AbrConfig = AbrConfig.DEFAULT
-        private var bufferConfig: BufferConfig = BufferConfig.DEFAULT
+        internal var abrConfig: AbrConfig = AbrConfig.DEFAULT
+            private set
+        internal var bufferConfig: BufferConfig = BufferConfig.DEFAULT
+            private set
         private var cacheConfig: CacheConfig = CacheConfig.DISABLED
         private var preloadConfig: PreloadConfig = PreloadConfig.DISABLED
+        private var prerenderConfig: PrerenderConfig = PrerenderConfig.DISABLED
 
         /**
          * Sets whether playback should loop when it reaches the end.
@@ -203,16 +235,35 @@ class FastPixPlayer private constructor(
         }
 
         /**
-         * Enables preloading of the next item in the player's playlist.
+         * Sets how many playlist entries around the current one are prepared ahead of time, e.g.
+         * `PreloadConfig(count = 3)` for the next three. See [PreloadConfig] for what is prepared.
          *
-         * Only has an effect when media is queued through [FastPixPlayer.setMediaItems]. For a feed
-         * that gives each page its own player, use [io.fastpix.media3.cache.FastPixPreCacher].
+         * Acts on the playlist set with [FastPixPlayer.setPlaylist]. With the disk cache on as well
+         * ([setCacheConfig]), entries further out are also written to disk.
          *
          * @param config Preload settings; [PreloadConfig.DISABLED] to turn preloading off.
          * @return This builder instance for method chaining.
          */
         fun setPreloadConfig(config: PreloadConfig): Builder {
             this.preloadConfig = config
+            return this
+        }
+
+        /**
+         * Sets how many playlist entries around the current one are pre-rendered, e.g.
+         * `PrerenderConfig(count = 1)` for the next one. Moving to a pre-rendered entry shows its
+         * first frame at once, instead of a black frame while the video starts. See
+         * [PrerenderConfig].
+         *
+         * Needs a [io.fastpix.media3.PlayerView] showing the player: frames are captured through it.
+         * For UIs with a page and a view per entry, use
+         * [io.fastpix.media3.playlist.FastPixPlayerPool] instead.
+         *
+         * @param config Pre-render settings; [PrerenderConfig.DISABLED] to turn it off.
+         * @return This builder instance for method chaining.
+         */
+        fun setPrerenderConfig(config: PrerenderConfig): Builder {
+            this.prerenderConfig = config
             return this
         }
 
@@ -237,27 +288,71 @@ class FastPixPlayer private constructor(
                 abrConfig.bandwidthFraction
             )
 
-            val trackSelector = DefaultTrackSelector(context, trackSelectionFactory)
-
-            val playerBuilder = ExoPlayer.Builder(context)
-                .setBandwidthMeter(bandwidthMeter)
-                .setTrackSelector(trackSelector)
-                .setLoadControl(bufferConfig.toLoadControl())
+            val loadControl = bufferConfig.toLoadControl()
 
             // The cache has to be installed at construction time: it lives underneath the
-            // MediaSource.Factory, which ExoPlayer.Builder freezes on build(). Returns null when
-            // caching is off or the cache could not be opened, in which case playback is
-            // byte-for-byte what it was before.
+            // MediaSource.Factory, which ExoPlayer.Builder freezes on build(). Null when caching is
+            // off or the cache could not be opened, in which case playback is byte-for-byte what
+            // it was before.
             val cache = MediaCacheProvider.getOrCreate(context, cacheConfig)
-            if (cache != null) {
-                playerBuilder.setMediaSourceFactory(
-                    DefaultMediaSourceFactory(
-                        MediaCacheProvider.buildDataSourceFactory(context, cache, cacheConfig)
-                    )
-                )
-            }
+            val mediaSourceFactory: MediaSource.Factory? =
+                cache?.let { ItemScopedMediaSourceFactory(context, it, cacheConfig) }
 
-            val exoPlayer = playerBuilder.build()
+            val exoPlayer: ExoPlayer
+            val trackSelector: DefaultTrackSelector
+            var preloadSetup: PreloadSetup? = null
+
+            if (preloadConfig.enabled || prerenderConfig.enabled) {
+                // Preloaded sources are only playable by a player built from the same preload
+                // manager builder, which shares load control, bandwidth estimate, playback thread
+                // and source factory between the two. Pre-rendered entries are preloaded too, so
+                // the main player starts them from warm bytes while their first frame is shown.
+                val policy = PreloadPolicy(
+                    PreloadWindow(
+                        ahead = maxOf(preloadConfig.count, prerenderConfig.count),
+                        behind = maxOf(preloadConfig.behind, prerenderConfig.behind),
+                    ),
+                    preloadConfig.bufferedDurationMs,
+                )
+                val createdSelectors = mutableListOf<DefaultTrackSelector>()
+                val preloadBuilder = DefaultPreloadManager.Builder(context, policy)
+                    .setBandwidthMeter(bandwidthMeter)
+                    .setLoadControl(loadControl)
+                    .setTrackSelectorFactory { selectorContext ->
+                        DefaultTrackSelector(selectorContext, trackSelectionFactory)
+                            .also { createdSelectors += it }
+                    }
+                    .setMediaSourceFactory(mediaSourceFactory ?: DefaultMediaSourceFactory(context))
+                exoPlayer = preloadBuilder.buildExoPlayer(ExoPlayer.Builder(context))
+                val preloadManager = preloadBuilder.build()
+                trackSelector = exoPlayer.trackSelector as DefaultTrackSelector
+                val prerenderer = if (prerenderConfig.enabled) {
+                    SingleViewPrerenderer(
+                        capturePlayer = preloadBuilder.buildExoPlayer(ExoPlayer.Builder(context)),
+                        config = prerenderConfig,
+                    )
+                } else {
+                    null
+                }
+                preloadSetup = PreloadSetup(
+                    preloadManager = preloadManager,
+                    policy = policy,
+                    // The capture player's selector is included: its captures must match the
+                    // rendition playback will show.
+                    preloadTrackSelectors = createdSelectors.filter { it !== trackSelector },
+                    cache = cache,
+                    cacheConfig = cacheConfig,
+                    prerenderer = prerenderer,
+                )
+            } else {
+                trackSelector = DefaultTrackSelector(context, trackSelectionFactory)
+                val playerBuilder = ExoPlayer.Builder(context)
+                    .setBandwidthMeter(bandwidthMeter)
+                    .setTrackSelector(trackSelector)
+                    .setLoadControl(loadControl)
+                mediaSourceFactory?.let { playerBuilder.setMediaSourceFactory(it) }
+                exoPlayer = playerBuilder.build()
+            }
 
             return FastPixPlayer(
                 context = context,
@@ -268,13 +363,53 @@ class FastPixPlayer private constructor(
                 initialAutoplay = autoplay,
                 seekPreviewConfig = seekPreviewConfig,
                 analyticsConfig = analyticsConfig,
-                preloadConfig = preloadConfig
+                bandwidthMeter = bandwidthMeter,
+                preloadSetup = preloadSetup,
+            )
+        }
+
+        /** The adaptive track selection [abrConfig] describes. */
+        internal fun trackSelectionFactory(): AdaptiveTrackSelection.Factory =
+            AdaptiveTrackSelection.Factory(
+                abrConfig.minDurationForQualityIncreaseMs,
+                abrConfig.maxDurationForQualityDecreaseMs,
+                abrConfig.minDurationToRetainAfterDiscardMs,
+                abrConfig.bandwidthFraction
+            )
+
+        /**
+         * Builds a player for a [io.fastpix.media3.playlist.FastPixPlayerPool]: from the pool's
+         * preload manager builder, so it can play what the pool preloaded, sharing the pool's
+         * bandwidth estimate, buffering and cache. This builder's own cache and preload settings are
+         * ignored — the pool's apply — and autoplay is off: the pool decides what plays.
+         */
+        internal fun buildForPool(
+            preloadBuilder: DefaultPreloadManager.Builder,
+            bandwidthMeter: BandwidthMeter,
+            preloadTrackSelectors: List<DefaultTrackSelector>,
+        ): FastPixPlayer {
+            val exoPlayer = preloadBuilder.buildExoPlayer(ExoPlayer.Builder(context))
+            return FastPixPlayer(
+                context = context,
+                exoPlayer = exoPlayer,
+                trackSelector = exoPlayer.trackSelector as DefaultTrackSelector,
+                abrConfig = abrConfig,
+                initialLoop = loop,
+                initialAutoplay = false,
+                seekPreviewConfig = seekPreviewConfig,
+                analyticsConfig = analyticsConfig,
+                bandwidthMeter = bandwidthMeter,
+                preloadSetup = null,
+                sharedPreloadTrackSelectors = preloadTrackSelectors,
             )
         }
     }
 
     companion object {
         private const val ERROR_CODE_EMPTY_PLAYBACK_ID = 9002
+
+        /** Longest a captured first frame covers the video while this player starts. */
+        private const val BRIDGE_TIMEOUT_MS = 4_000L
         private const val ERROR_CODE_DRM_LICENSE_URL_EMPTY = 9010
         private const val ERROR_CODE_DRM_CONFIGURATION_FAILED = 9011
         private const val ERROR_CODE_SET_MEDIA_ITEM_FAILED = 9012
@@ -365,18 +500,28 @@ class FastPixPlayer private constructor(
 
     /**
      * List of playback listeners.
+     *
+     * Copy-on-write, like every listener list here: dispatch iterates a snapshot, so a listener
+     * may add or remove listeners — itself included — from inside a callback. Apps do this
+     * routinely (a one-shot listener removing itself on first frame), and a plain list throws
+     * ConcurrentModificationException mid-dispatch.
      */
-    private val playbackListeners = mutableListOf<PlaybackListener>()
+    private val playbackListeners = CopyOnWriteArrayList<PlaybackListener>()
+
+    /** Playlist entries and position; empty unless [setPlaylist] or [addToPlaylist] was used. */
+    private val playlist = PlaylistQueue<PlaylistItem>()
+
+    private val playlistListeners = CopyOnWriteArrayList<PlaylistListener>()
 
     /**
      * List of audio track listeners.
      */
-    private val audioTrackListeners = mutableListOf<AudioTrackListener>()
+    private val audioTrackListeners = CopyOnWriteArrayList<AudioTrackListener>()
 
     /**
      * List of subtitle track listeners.
      */
-    private val subtitleTrackListeners = mutableListOf<SubtitleTrackListener>()
+    private val subtitleTrackListeners = CopyOnWriteArrayList<SubtitleTrackListener>()
 
     /**
      * Unified track manager: discovers and stores audio and subtitle tracks from Media3.
@@ -445,6 +590,16 @@ class FastPixPlayer private constructor(
      * Reset when new media is set.
      */
     private var hasNotifiedPlayerReady: Boolean = false
+
+    /** Whether the current media's first frame is on the surface. Reset when new media is set. */
+    private var firstFrameRendered: Boolean = false
+
+    /**
+     * Sees playback errors before the app's listeners and may consume them (return true). Set by a
+     * [io.fastpix.media3.playlist.FastPixPlayerPool] while this player pre-renders, so a failure of
+     * speculative work never reaches the app as a playback error.
+     */
+    internal var errorInterceptor: ((PlaybackException) -> Boolean)? = null
 
     /**
      * Track if the player listener is currently attached to avoid duplicate listeners.
@@ -585,19 +740,13 @@ class FastPixPlayer private constructor(
         }
 
         // Create playback URL
-        val playbackUrl = createFastPixPlaybackUrl(
-            playbackId = config.playbackId,
-            customDomain = config.customDomain ?: "stream.fastpix.com",
-            maxResolution = config.maxResolution,
-            minResolution = config.minResolution,
-            resolution = config.resolution,
-            renditionOrder = config.renditionOrder,
-            playbackToken = config.playbackToken
-        )
+        val playbackUrl = FastPixMediaItems.playbackUrl(config)
 
         val mediaItemBuilder = MediaItem.Builder().setUri(
             playbackUrl
         ).setMimeType(MimeTypes.APPLICATION_M3U8)
+            // Lets the cache key this asset's segments by playback ID, custom domain or not.
+            .setTag(FastPixItemKeys.FastPixItemTag(config.playbackId))
         if(config.playbackToken != null) {
             val drmConfig = config.drmConfig
             if (drmConfig == null) {
@@ -638,68 +787,6 @@ class FastPixPlayer private constructor(
 
 
     /**
-     * Creates a FastPix playback URL with the given parameters.
-     */
-    @UnstableApi
-    private fun createFastPixPlaybackUrl(
-        playbackId: String,
-        customDomain: String,
-        maxResolution: PlaybackResolution?,
-        minResolution: PlaybackResolution?,
-        resolution: PlaybackResolution?,
-        renditionOrder: RenditionOrder?,
-        playbackToken: String?
-    ): String {
-        val uriBuilder = Uri.Builder()
-            .scheme("https")
-            .authority(customDomain)
-            .appendPath("$playbackId.m3u8")
-
-        minResolution?.let {
-            uriBuilder.appendQueryParameter("minResolution", getResolutionValue(it))
-        }
-        maxResolution?.let {
-            uriBuilder.appendQueryParameter("maxResolution", getResolutionValue(it))
-        }
-        resolution?.let {
-            uriBuilder.appendQueryParameter("resolution", getResolutionValue(it))
-        }
-        renditionOrder?.takeIf { it != RenditionOrder.Default }?.let {
-            uriBuilder.appendQueryParameter("renditionOrder", getRenditionValue(it))
-        }
-        playbackToken?.let {
-            uriBuilder.appendQueryParameter("token", it)
-        }
-
-        return uriBuilder.build().toString()
-    }
-
-    /**
-     * Converts a PlaybackResolution enum to its string value.
-     */
-    private fun getResolutionValue(resolution: PlaybackResolution): String {
-        return when (resolution) {
-            PlaybackResolution.LD_480 -> "480p"
-            PlaybackResolution.LD_540 -> "540p"
-            PlaybackResolution.HD_720 -> "720p"
-            PlaybackResolution.FHD_1080 -> "1080p"
-            PlaybackResolution.QHD_1440 -> "1440p"
-            PlaybackResolution.FOUR_K_2160 -> "2160p"
-        }
-    }
-
-    /**
-     * Converts a RenditionOrder enum to its string value.
-     */
-    private fun getRenditionValue(renditionOrder: RenditionOrder): String {
-        return when (renditionOrder) {
-            RenditionOrder.Descending -> "desc"
-            RenditionOrder.Ascending -> "asc"
-            RenditionOrder.Default -> ""
-        }
-    }
-
-    /**
      * Notifies the player listener of an error.
      */
     private fun notifyPlayerError(exception: PlaybackException) {
@@ -738,7 +825,20 @@ class FastPixPlayer private constructor(
             completeSeekIfReady(playbackState)
         }
 
+        override fun onRenderedFirstFrame() {
+            hideBridge()
+            if (firstFrameRendered) return
+            firstFrameRendered = true
+            prerenderer?.onPrimaryFirstFrame()
+            playbackListeners.forEach { it.onFirstFrameRendered() }
+        }
+
         override fun onPlayerError(error: PlaybackException) {
+            if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) {
+                DecoderBudget.onOpenFailed()
+            }
+            // A pre-rendering player's failure is its pool's business, not the app's.
+            if (errorInterceptor?.invoke(error) == true) return
             playbackListeners.forEach { it.onError(error) }
             stopTimeUpdates()
 
@@ -891,6 +991,7 @@ class FastPixPlayer private constructor(
         if (playbackState != Player.STATE_ENDED) return
         stopTimeUpdates()
         playbackListeners.forEach { it.onCompleted() }
+        advancePlaylistAfterEnd()
     }
 
     private fun completeSeekIfReady(playbackState: Int) {
@@ -918,6 +1019,23 @@ class FastPixPlayer private constructor(
         // Resume time updates if player is playing
         if (exoPlayer.isPlaying && playbackListeners.isNotEmpty()) {
             startTimeUpdates()
+        }
+    }
+
+    /** Reports this player's video decoder to the process-wide [DecoderBudget]. */
+    private val decoderBudgetListener = object : AnalyticsListener {
+        override fun onVideoEnabled(
+            eventTime: AnalyticsListener.EventTime,
+            decoderCounters: DecoderCounters,
+        ) {
+            DecoderBudget.onDecoderOpened(this@FastPixPlayer)
+        }
+
+        override fun onVideoDisabled(
+            eventTime: AnalyticsListener.EventTime,
+            decoderCounters: DecoderCounters,
+        ) {
+            DecoderBudget.onDecoderClosed(this@FastPixPlayer)
         }
     }
 
@@ -955,7 +1073,97 @@ class FastPixPlayer private constructor(
         trackSelector = trackSelector,
         networkMonitor = networkMonitor,
         config = abrConfig,
+        onCapApplied = { bps -> applyCapToPreloadSelectors(bps) },
     )
+
+    /** Track selectors the preload manager picks renditions with; empty without preloading. */
+    private val preloadTrackSelectors: List<DefaultTrackSelector> =
+        preloadSetup?.preloadTrackSelectors ?: sharedPreloadTrackSelectors
+
+    /**
+     * Prepares playlist entries around the current one; null unless preloading was configured.
+     * With the cache on, entries beyond the adjacent ones are also warmed to disk in the rendition
+     * this player would pick.
+     */
+    private val playlistPreloader: PlaylistPreloader? = preloadSetup?.let { setup ->
+        val diskWarmer = setup.cache?.let { cache ->
+            @Suppress("DEPRECATION")
+            val warmer = io.fastpix.media3.cache.FastPixPreCacher.forPlayer(context, cache, setup.cacheConfig) {
+                preloadTargetBitrate()
+            }
+            object : PlaylistPreloader.DiskWarmer {
+                override fun warm(mediaItems: List<MediaItem>) = warmer.preCacheMediaItems(mediaItems)
+                override fun cancelAll() = warmer.cancelAll()
+                override fun release() = warmer.release()
+            }
+        }
+        PlaylistPreloader(setup.preloadManager, setup.policy, diskWarmer)
+    }
+
+    /** Captures upcoming entries' first frames; null unless pre-rendering was configured. */
+    private val prerenderer: SingleViewPrerenderer? = preloadSetup?.prerenderer
+
+    /** The view showing this player, while one does and pre-rendering is on. */
+    private var prerenderHost: PrerenderSurfaceHost? = null
+
+    /** Whether a captured frame is covering the video, and the timeout that will lift it. */
+    private var bridgeShown = false
+    private val bridgeTimeout = Runnable { hideBridge() }
+
+    /** Whether this player pre-renders, and so needs a view to capture frames through. */
+    internal val prerendersThroughView: Boolean get() = prerenderer != null
+
+    /**
+     * Called by [io.fastpix.media3.PlayerView] as it starts or stops showing this player. Only the
+     * latest view is used: a player shown in two views captures through the second.
+     */
+    internal fun setPrerenderHost(host: PrerenderSurfaceHost?) {
+        if (host == null && prerenderHost == null) return
+        if (host == null) hideBridge()
+        prerenderHost = host
+        prerenderer?.setHost(host)
+    }
+
+    /** Releases the host if it is [host] — a view detaching must not unset its successor. */
+    internal fun clearPrerenderHost(host: PrerenderSurfaceHost) {
+        if (prerenderHost === host) setPrerenderHost(null)
+    }
+
+    private fun showBridge(frame: android.graphics.Bitmap) {
+        val host = prerenderHost ?: return
+        host.showBridge(frame)
+        bridgeShown = true
+        timeUpdateHandler.removeCallbacks(bridgeTimeout)
+        // A frame left up after the video should have started reads as a hang; take it down.
+        timeUpdateHandler.postDelayed(bridgeTimeout, BRIDGE_TIMEOUT_MS)
+    }
+
+    private fun hideBridge() {
+        if (!bridgeShown) return
+        bridgeShown = false
+        timeUpdateHandler.removeCallbacks(bridgeTimeout)
+        prerenderHost?.hideBridge()
+    }
+
+    /** Keeps the preload manager's rendition choice under the same cap as playback. */
+    private fun applyCapToPreloadSelectors(maxVideoBitrateBps: Int) {
+        for (selector in preloadTrackSelectors) {
+            selector.setParameters(
+                selector.buildUponParameters().setMaxVideoBitrate(maxVideoBitrateBps)
+            )
+        }
+    }
+
+    /**
+     * The bitrate this player would pick for an entry starting now: its bandwidth estimate, scaled
+     * the way its adaptive selection scales it, under any network cap in force. Entries warmed to
+     * disk are warmed in that rendition, so playback finds them.
+     */
+    internal fun preloadTargetBitrate(): Int {
+        val estimate = (bandwidthMeter.bitrateEstimate * abrConfig.bandwidthFraction).toLong()
+        val cap = trackSelector.parameters.maxVideoBitrate
+        return minOf(estimate, cap.toLong()).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
 
     /**
      * Emits [ERROR_CODE_NETWORK_STALL_TIMEOUT] via the normal error path when the player stays in
@@ -982,9 +1190,6 @@ class FastPixPlayer private constructor(
         loop = initialLoop
         autoplay = initialAutoplay
 
-        // Preloading of the next playlist item; no-op unless the app queues media items.
-        applyPreloadConfiguration()
-
         // Initialize previous playback state
         previousPlaybackState = exoPlayer.playbackState
 
@@ -997,35 +1202,13 @@ class FastPixPlayer private constructor(
         // Initialize playback speed to normal (1.0x)
         normalize()
 
-        // Initialize analytics on main thread when config is present and enabled
-        if (analyticsConfig != null && analyticsConfig.enabled) {
-            analyticsManager = AnalyticsManager(context, exoPlayer, analyticsConfig)
-            if (Looper.myLooper() == Looper.getMainLooper()) {
-                analyticsManager?.initialize()
-            } else {
-                timeUpdateHandler.post { analyticsManager?.initialize() }
-            }
-        }
+        // Analytics views begin per video, as media is loaded — see beginAnalyticsView.
 
         // Start the network-aware ABR pipeline. Register the monitor first so the controller's
         // addListener callback sees a non-UNKNOWN initial state.
         networkMonitor.register()
         abrController.attach()
         stallWatchdog.attach()
-    }
-
-    /**
-     * Pushes [preloadConfig] to the underlying player. ExoPlayer then warms the next item in the
-     * playlist to the configured duration as the queue advances; with a single media item there is
-     * no next item and this has no effect.
-     */
-    private fun applyPreloadConfiguration() {
-        if (!preloadConfig.enabled) return
-        exoPlayer.setPreloadConfiguration(
-            ExoPlayer.PreloadConfiguration(
-                preloadConfig.targetPreloadDurationMs * 1_000L
-            )
-        )
     }
 
     /**
@@ -1037,6 +1220,7 @@ class FastPixPlayer private constructor(
             exoPlayer.removeAnalyticsListener(formatAnalyticsListener)
             exoPlayer.addListener(playerListener)
             exoPlayer.addAnalyticsListener(formatAnalyticsListener)
+            exoPlayer.addAnalyticsListener(decoderBudgetListener)
             isListenerAttached = true
         }
     }
@@ -1048,6 +1232,7 @@ class FastPixPlayer private constructor(
         if (isListenerAttached) {
             exoPlayer.removeListener(playerListener)
             exoPlayer.removeAnalyticsListener(formatAnalyticsListener)
+            exoPlayer.removeAnalyticsListener(decoderBudgetListener)
             isListenerAttached = false
         }
     }
@@ -1155,6 +1340,9 @@ class FastPixPlayer private constructor(
      * @param mediaItem The media item to set.
      */
     fun setMediaItem(mediaItem: MediaItem) {
+        // A single item replaces any playlist.
+        clearPlaylistState()
+
         // Check if player already has media items and is in a valid state
         val currentMediaItemCount = exoPlayer.mediaItemCount
         if (currentMediaItemCount > 0) {
@@ -1182,13 +1370,8 @@ class FastPixPlayer private constructor(
         }
 
         // New or different media item - set it and prepare
-        hasNotifiedPlayerReady = false
-        firstTracksForCurrentMedia = true
-        pendingAudioTrackId = null
-        pendingSubtitleTrackId = null
-        pendingVideoTrackId = null
-        lastNotifiedVideoQuality = null
-        trackManager.resetSelectionStateForNewMedia()
+        resetStateForNewMedia()
+        beginAnalyticsView(analyticsConfig?.videoDataDetails)
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
         triggerSeekPreviewLoadIfEnabled()
@@ -1201,48 +1384,352 @@ class FastPixPlayer private constructor(
      * @param startIndex The index of the item to start playing from.
      * @param startPositionMs The position in milliseconds to start from.
      */
+    @Deprecated(
+        message = "Use setPlaylist, which adds navigation (next, previous, skipTo), editing and " +
+                "PlaylistListener callbacks.",
+        replaceWith = ReplaceWith(
+            "setPlaylist(mediaItems.map { PlaylistItem.fromMediaItem(it) }, startIndex, startPositionMs)",
+            "io.fastpix.media3.playlist.PlaylistItem",
+        ),
+    )
     fun setMediaItems(
         mediaItems: List<MediaItem>,
         startIndex: Int = 0,
         startPositionMs: Long = 0
     ) {
-        // Check if player already has the same media items
-        val currentMediaItemCount = exoPlayer.mediaItemCount
-        if (currentMediaItemCount == mediaItems.size && currentMediaItemCount > 0) {
-            // Check if all media items match
-            var allMatch = true
-            for (i in mediaItems.indices) {
-                val currentItem = exoPlayer.getMediaItemAt(i)
-                val newItem = mediaItems[i]
-                val mediaIdMatches = currentItem.mediaId == newItem.mediaId
-                val uriMatches =
-                    currentItem.localConfiguration?.uri == newItem.localConfiguration?.uri
-                val drmMatches =
-                    currentItem.localConfiguration?.drmConfiguration ==
-                            newItem.localConfiguration?.drmConfiguration
-                if (!mediaIdMatches || !uriMatches || !drmMatches) {
-                    allMatch = false
-                    break
-                }
-            }
-
-            if (allMatch) {
-                // Same media items already set - don't reset playback state
-                return
-            }
+        // Same items already queued: keep playback where it is, as before 2.2.0.
+        val current = playlist.snapshot()
+        if (current.isNotEmpty() && current.size == mediaItems.size &&
+            current.indices.all { current[it].mediaItem == mediaItems[it] }
+        ) {
+            return
         }
+        setPlaylist(mediaItems.map { PlaylistItem.fromMediaItem(it) }, startIndex, startPositionMs)
+    }
 
-        // New or different media items - set them and prepare
+    /** Resets per-media state before a different item is loaded. */
+    private fun resetStateForNewMedia() {
         hasNotifiedPlayerReady = false
+        firstFrameRendered = false
         firstTracksForCurrentMedia = true
         pendingAudioTrackId = null
         pendingSubtitleTrackId = null
         pendingVideoTrackId = null
         lastNotifiedVideoQuality = null
         trackManager.resetSelectionStateForNewMedia()
-        exoPlayer.setMediaItems(mediaItems, startIndex, startPositionMs)
-        exoPlayer.prepare()
+    }
+
+    // --------------- Playlist API ---------------
+
+    /**
+     * Replaces whatever is loaded with [items] and starts loading the entry at [startIndex].
+     *
+     * The player then moves to the next entry by itself when one finishes, unless [loop] is on,
+     * which repeats the current entry. Navigate with [next], [previous] and [skipTo]; edit with
+     * [addToPlaylist] and [removeFromPlaylist]; observe with [addPlaylistListener].
+     *
+     * An empty list clears the playlist and stops playback. Call from the main thread.
+     *
+     * @param items entries to play, in order.
+     * @param startIndex entry to start from.
+     * @param startPositionMs position within that entry to start from.
+     * @throws IllegalArgumentException if [startIndex] is out of range for a non-empty [items].
+     */
+    @JvmOverloads
+    fun setPlaylist(items: List<PlaylistItem>, startIndex: Int = 0, startPositionMs: Long = 0L) {
+        playlist.set(items, startIndex)
+        playlistPreloader?.setPlaylist(items)
+        prerenderer?.setPlaylist(items)
+        notifyPlaylistChanged()
+        if (playlist.isEmpty()) {
+            unloadMedia()
+        } else {
+            loadCurrentPlaylistItem(startPositionMs, PlaylistItemChangeReason.PLAYLIST_SET)
+        }
+    }
+
+    /** Appends [item] to the end of the playlist. */
+    fun addToPlaylist(item: PlaylistItem) {
+        addToPlaylist(playlist.size, listOf(item))
+    }
+
+    /** Appends [items] to the end of the playlist. */
+    fun addToPlaylist(items: List<PlaylistItem>) {
+        addToPlaylist(playlist.size, items)
+    }
+
+    /**
+     * Inserts [items] at [index]; entries from [index] onwards shift back. The current entry keeps
+     * playing. Adding to an empty playlist starts loading the first added entry.
+     *
+     * @throws IllegalArgumentException if [index] is not in `0..playlist size`.
+     */
+    fun addToPlaylist(index: Int, items: List<PlaylistItem>) {
+        val appended = index == playlist.size
+        val currentChanged = playlist.add(index, items)
+        if (items.isEmpty()) return
+        // An append keeps every existing entry's position, and so everything already preloaded.
+        // An insert shifts positions, so the preload window is rebuilt.
+        prerenderer?.setPlaylist(playlist.snapshot())
+        if (appended) {
+            playlistPreloader?.append(index, items)
+        } else {
+            playlistPreloader?.setPlaylist(playlist.snapshot())
+            if (!currentChanged) playlistPreloader?.onCurrentIndexChanged(playlist.currentIndex)
+        }
+        notifyPlaylistChanged()
+        if (currentChanged) {
+            loadCurrentPlaylistItem(0L, PlaylistItemChangeReason.PLAYLIST_EDITED)
+        }
+    }
+
+    /**
+     * Removes the entry at [index]. Removing the current entry loads the one that takes its place
+     * (the new last entry, if it was last); removing the only entry stops playback.
+     *
+     * @throws IllegalArgumentException if [index] is out of range.
+     */
+    fun removeFromPlaylist(index: Int) {
+        val currentRemoved = playlist.removeAt(index)
+        playlistPreloader?.setPlaylist(playlist.snapshot())
+        prerenderer?.setPlaylist(playlist.snapshot())
+        if (!currentRemoved && !playlist.isEmpty()) {
+            playlistPreloader?.onCurrentIndexChanged(playlist.currentIndex)
+        }
+        notifyPlaylistChanged()
+        when {
+            playlist.isEmpty() -> unloadMedia()
+            currentRemoved -> loadCurrentPlaylistItem(0L, PlaylistItemChangeReason.PLAYLIST_EDITED)
+        }
+    }
+
+    /** Removes every entry and stops playback. */
+    fun clearPlaylist() {
+        if (playlist.isEmpty()) return
+        playlist.clear()
+        playlistPreloader?.clear()
+        prerenderer?.setPlaylist(emptyList())
+        notifyPlaylistChanged()
+        unloadMedia()
+    }
+
+    /**
+     * Moves to the next entry and starts loading it from the beginning.
+     *
+     * @return false, doing nothing, when already at the last entry.
+     */
+    fun next(): Boolean {
+        if (!playlist.next()) return false
+        loadCurrentPlaylistItem(0L, PlaylistItemChangeReason.NAVIGATION)
+        return true
+    }
+
+    /**
+     * Moves to the previous entry and starts loading it from the beginning. To restart the current
+     * entry instead, use `seekTo(0)`.
+     *
+     * @return false, doing nothing, when already at the first entry.
+     */
+    fun previous(): Boolean {
+        if (!playlist.previous()) return false
+        loadCurrentPlaylistItem(0L, PlaylistItemChangeReason.NAVIGATION)
+        return true
+    }
+
+    /**
+     * Makes the entry at [index] current and starts loading it at [positionMs]. Reloads it even if
+     * it is already current, which restarts it.
+     *
+     * @throws IllegalArgumentException if [index] is out of range.
+     */
+    @JvmOverloads
+    fun skipTo(index: Int, positionMs: Long = 0L) {
+        playlist.moveTo(index)
+        loadCurrentPlaylistItem(positionMs, PlaylistItemChangeReason.NAVIGATION)
+    }
+
+    /** Whether there is an entry after the current one. */
+    fun hasNext(): Boolean = playlist.hasNext()
+
+    /** Whether there is an entry before the current one. */
+    fun hasPrevious(): Boolean = playlist.hasPrevious()
+
+    /** The playlist's entries, in order; empty when no playlist is set. */
+    fun getPlaylist(): List<PlaylistItem> = playlist.snapshot()
+
+    /** Position of the current entry, or -1 when no playlist is set. */
+    fun getCurrentIndex(): Int = playlist.currentIndex
+
+    /** The current entry, or null when no playlist is set. */
+    fun getCurrentItem(): PlaylistItem? = playlist.current
+
+    /**
+     * Whether the current media's first video frame is on the surface — true for a pre-rendered
+     * item before it starts playing. See [PlaybackListener.onFirstFrameRendered].
+     */
+    fun hasRenderedFirstFrame(): Boolean = firstFrameRendered
+
+    /**
+     * Loads [item] for a [io.fastpix.media3.playlist.FastPixPlayerPool] page without starting it:
+     * from [source] when the pool preloaded one, and prepared only when [prepare] — preparing opens
+     * a video decoder, which the pool budgets.
+     */
+    internal fun loadForPool(item: PlaylistItem, source: MediaSource?, prepare: Boolean) {
+        // A reused pool player's view belonged to its previous entry.
+        endAnalyticsView()
+        clearPlaylistState()
+        resetStateForNewMedia()
+        exoPlayer.playWhenReady = false
+        if (source != null) exoPlayer.setMediaSource(source) else exoPlayer.setMediaItem(item.mediaItem)
+        if (prepare) exoPlayer.prepare()
         triggerSeekPreviewLoadIfEnabled()
+    }
+
+    /**
+     * How many attached [io.fastpix.media3.PlayerView]s are showing this player right now. A
+     * [io.fastpix.media3.playlist.FastPixPlayerPool] never hands a displayed player to another
+     * page: the page still showing it would be left with a player playing something else.
+     */
+    private var attachedViewCount = 0
+
+    internal val isDisplayedByView: Boolean get() = attachedViewCount > 0
+
+    /** Called by [io.fastpix.media3.PlayerView] as it starts or stops showing this player. */
+    internal fun onViewDisplayChanged(view: io.fastpix.media3.PlayerView, displayed: Boolean) {
+        attachedViewCount = if (displayed) attachedViewCount + 1 else maxOf(0, attachedViewCount - 1)
+        if (displayed) {
+            displayingView = view
+            if (pendingAnalyticsView) beginAnalyticsView(pendingAnalyticsVideoData)
+        } else if (displayingView === view) {
+            displayingView = null
+        }
+    }
+
+    // --------------- Analytics views ---------------
+
+    /**
+     * Begins a FastPix Data view for the video about to play, ending any view still open — this
+     * player's or another's (see [AnalyticsSessions]). Deferred until a
+     * [io.fastpix.media3.PlayerView] shows the player when the config names none.
+     */
+    private fun beginAnalyticsView(videoData: VideoDataDetails?) {
+        val config = analyticsConfig?.takeIf { it.enabled } ?: return
+        val view = (config.playerView ?: displayingView)?.media3PlayerView
+        if (view == null) {
+            AnalyticsSessions.endFor(this)
+            pendingAnalyticsView = true
+            pendingAnalyticsVideoData = videoData
+            return
+        }
+        pendingAnalyticsView = false
+        pendingAnalyticsVideoData = null
+        AnalyticsSessions.begin(this, AnalyticsManager(context, exoPlayer, config, view, videoData))
+    }
+
+    /** Ends this player's analytics view, if one is open or waiting for a view. */
+    private fun endAnalyticsView() {
+        pendingAnalyticsView = false
+        pendingAnalyticsVideoData = null
+        AnalyticsSessions.endFor(this)
+    }
+
+    /** Begins the analytics view for [item], made current by a pool. */
+    internal fun beginAnalyticsViewForPool(item: PlaylistItem) {
+        beginAnalyticsView(videoDataFor(item))
+    }
+
+    /** Ends the analytics view of a pool page the user has left. */
+    internal fun endAnalyticsViewForPool() {
+        endAnalyticsView()
+    }
+
+    /** An entry's own metadata, else the config's, else just its id. */
+    private fun videoDataFor(item: PlaylistItem): VideoDataDetails =
+        item.videoDataDetails
+            ?: analyticsConfig?.videoDataDetails
+            ?: VideoDataDetails(videoId = item.id)
+
+    /** Whether media is prepared or preparing, as opposed to idle. */
+    internal val isPreparedForPool: Boolean
+        get() = exoPlayer.playbackState != Player.STATE_IDLE
+
+    /** Prepares loaded media that [loadForPool] left idle. */
+    internal fun prepareForPool() {
+        if (exoPlayer.playbackState == Player.STATE_IDLE && exoPlayer.mediaItemCount > 0) {
+            exoPlayer.prepare()
+        }
+    }
+
+    /** Stops decoding and loading, keeping the media item so [prepareForPool] can resume it. */
+    internal fun stopForPool() {
+        endAnalyticsView()
+        exoPlayer.stop()
+        firstFrameRendered = false
+    }
+
+    /** Registers [listener] for playlist changes. Adding the same listener twice has no effect. */
+    fun addPlaylistListener(listener: PlaylistListener) {
+        if (listener !in playlistListeners) playlistListeners.add(listener)
+    }
+
+    fun removePlaylistListener(listener: PlaylistListener) {
+        playlistListeners.remove(listener)
+    }
+
+    /**
+     * Loads the current playlist entry. Unlike [setMediaItem] this always reloads, even when the
+     * same media is already loaded: a playlist may list one item twice, and moving between the two
+     * copies must restart it.
+     */
+    private fun loadCurrentPlaylistItem(positionMs: Long, reason: PlaylistItemChangeReason) {
+        val item = playlist.current ?: return
+        val index = playlist.currentIndex
+        resetStateForNewMedia()
+        // Each entry watched is its own analytics view, begun before loading so no event is missed.
+        beginAnalyticsView(videoDataFor(item))
+        // A pre-rendered entry shows its captured first frame until this player's own lands.
+        val frame = prerenderer?.frameFor(item)
+        if (frame != null && positionMs == 0L) showBridge(frame) else hideBridge()
+        // A preloaded source carries whatever was already fetched and buffered for this entry.
+        val preloaded = playlistPreloader?.mediaSourceFor(item)
+        if (preloaded != null) {
+            exoPlayer.setMediaSource(preloaded, positionMs)
+        } else {
+            exoPlayer.setMediaItem(item.mediaItem, positionMs)
+        }
+        exoPlayer.prepare()
+        playlistPreloader?.onCurrentIndexChanged(index)
+        prerenderer?.onCurrentIndexChanged(index)
+        triggerSeekPreviewLoadIfEnabled()
+        playlistListeners.toList().forEach { it.onPlaylistItemChanged(index, item, reason) }
+    }
+
+    /** Moves on after the current entry ends, when there is somewhere to move to. */
+    private fun advancePlaylistAfterEnd() {
+        if (loop || !playlist.next()) return
+        loadCurrentPlaylistItem(0L, PlaylistItemChangeReason.AUTO_ADVANCE)
+    }
+
+    /** Stops and unloads media after the playlist became empty. */
+    private fun unloadMedia() {
+        endAnalyticsView()
+        resetStateForNewMedia()
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+    }
+
+    /** Drops the playlist when single-item APIs take over the player. Leaves the media alone. */
+    private fun clearPlaylistState() {
+        if (playlist.isEmpty()) return
+        playlist.clear()
+        playlistPreloader?.clear()
+        prerenderer?.setPlaylist(emptyList())
+        notifyPlaylistChanged()
+    }
+
+    private fun notifyPlaylistChanged() {
+        val items = playlist.snapshot()
+        playlistListeners.toList().forEach { it.onPlaylistChanged(items) }
     }
 
     /**
@@ -1674,11 +2161,19 @@ class FastPixPlayer private constructor(
         pendingAudioTrackId = null
         pendingSubtitleTrackId = null
         pendingVideoTrackId = null
-        analyticsManager?.release()
-        analyticsManager = null
+        endAnalyticsView()
         seekPreviewManager?.release()
         detachPlayerListener()
+        playlistListeners.clear()
+        playlist.clear()
+        // The player first: it shares its playback pipeline with the preload manager, and releasing
+        // the manager first can leave the player's release waiting on a thread that is gone.
         exoPlayer.release()
+        hideBridge()
+        prerenderer?.release()
+        playlistPreloader?.release()
+        DecoderBudget.onDecoderClosed(this)
+        DecoderBudget.release(this)
     }
 
     // --------------- Audio track API ---------------
