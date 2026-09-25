@@ -2,6 +2,102 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.0]
+
+### Added
+- **Playlists** (`io.fastpix.media3.playlist`): `FastPixPlayer.setPlaylist(items, startIndex,
+  startPositionMs)` with `next()`, `previous()`, `skipTo(index)`, `hasNext()`, `hasPrevious()`,
+  `addToPlaylist(...)`, `removeFromPlaylist(index)`, `clearPlaylist()`, `getPlaylist()`,
+  `getCurrentIndex()` and `getCurrentItem()`. The player moves to the next entry when one finishes
+  (unless `loop` is on). Entries are `PlaylistItem`s built with `PlaylistItem.fastPix(playbackId)`,
+  `PlaylistItem.fastPix { ... }` (every `setFastPixMediaItem` option), `PlaylistItem.fromUrl(url)` or
+  `PlaylistItem.fromMediaItem(mediaItem)`. Observe with `PlaylistListener`
+  (`onPlaylistItemChanged(index, item, reason)`, `onPlaylistChanged(items)`)
+- **`PreloadConfig(count, behind)`**: prepares the next `count` playlist entries (and `behind`
+  previous ones). Adjacent entries are buffered in memory; entries further out have playlists and
+  tracks prepared and, with the disk cache on, their first segments written to disk in the rendition
+  the player will pick. Built on Media3's `DefaultPreloadManager`
+- **Pre-rendering** (`io.fastpix.media3.prerender.PrerenderConfig(count, behind)`) through the new
+  **`FastPixPlayerPool`**, for UIs with a page and a `PlayerView` per item. Neighbouring pages are
+  decoded up to their first frame and held paused, so swiping to them shows video at once instead of
+  a black frame. `playerAt(index)` supplies each page's player; `setCurrentIndex(index)` plays the
+  page on screen and re-centres the window. A process-wide decoder budget keeps pre-rendering within
+  what the device can run: it counts every FastPix player's decoder, keeps one in reserve, never gates
+  the item playing, lowers its limit if the device refuses a decoder, and keeps failed pre-renders
+  out of the app's error callbacks. DRM-protected entries are not pre-rendered
+- **Pre-rendering on a single player**: `FastPixPlayer.Builder.setPrerenderConfig(PrerenderConfig(count, behind))`.
+  While the current entry plays, a silent background player decodes each entry in range into a
+  hidden 1x1 surface inside `PlayerView` and keeps its first frame; on `next()`, `previous()` or
+  `skipTo()` the view shows that frame at once and swaps to the video when its own first frame lands
+  (at most 4 s). Captures run one at a time, only once the entry moved to is showing, under the
+  decoder budget, and free their decoder immediately after
+- **Analytics per video, in playlists and pools**: each video watched is now its own FastPix Data
+  view, with its own metadata via `PlaylistItem.withVideoData(VideoDataDetails(...))`. Views begin
+  when a video starts for the user (a single item, a playlist move, or `FastPixPlayerPool.setCurrentIndex`)
+  and end when playback moves on; preloaded and pre-rendered entries are never reported.
+  `FastPixPlayerPool.Builder.setAnalyticsConfig(...)` enables it for feeds, and
+  `AnalyticsConfig.Builder(workSpaceId)` builds a config without a fixed `PlayerView`, measuring
+  through whichever view shows the player
+- **`PlaybackListener.onFirstFrameRendered()`** and **`FastPixPlayer.hasRenderedFirstFrame()`**: the
+  moment the first video frame is on screen, e.g. to hide a poster
+
+### Changed
+- **The disk cache keys FastPix segments by asset**, not by signed URL. FastPix re-signs segment URLs
+  on every playlist fetch; segments are now keyed by playback ID plus rendition and segment path, so
+  they are reused across sessions and token refreshes **without caching playlists** — which makes the
+  cache safe for live streams too
+- **`PlayerView` never releases a player assigned through `player =`**. On detach it only unbinds the
+  surface, and re-binds on re-attach, so a player can move between views or survive a page being
+  recycled. Previously a view with no id — every view created in a Compose `AndroidView` — released
+  the app's player on detach, leaving it dead with no error: a shared player died on the first swipe
+  of a Compose pager, and a ViewPager2 page swiped back to never played. Release your player yourself,
+  or call `PlayerView.release()`
+- **`PlayerView` no longer creates a player just by being attached**. It creates one only for view-level
+  calls (`setMediaItem`, reading `player`) when none was assigned. Previously every attached view
+  without a player created a default one, and assigning a player afterwards leaked it
+- **Analytics views begin when a video starts, not when the player is built.** Previously one view
+  opened at `build()` and every later video — every playlist entry — was reported under the first
+  one's metadata. `AnalyticsConfig.playerView` is now nullable
+- `setMediaItems` now forwards to `setPlaylist`, so queued items gain navigation, editing and preloading
+- `FastPixPlayer`'s ABR bitrate cap now also governs the rendition preloaded for upcoming entries
+- `FastPixPlayer.release()` releases the player before its preload manager: the other order can
+  leave the release waiting on a playback thread that is already gone
+
+### Fixed
+- **Pages stuck black on pause after a fast fling** with `FastPixPlayerPool`: during a fling the pager
+  can hold more pages (attached, cached, prefetched) than the pool has players, and the pool could
+  reuse a player an on-screen page was still showing — that page kept a player now stopped or
+  playing another entry. `PlayerView` now reports the player it displays, and the pool never reuses
+  a displayed player; it creates another instead (stopped outside the window, so no extra decoder)
+- **Crash when a listener removed itself during a callback** (`ConcurrentModificationException` in
+  `FastPixPlayer`'s dispatch, e.g. a one-shot `PlaybackListener` calling `removePlaybackListener(this)`
+  in `onFirstFrameRendered`, surfaced by fast scrolling in a feed). Playback, playlist, audio-track and
+  subtitle-track listener lists are now copy-on-write, so adding or removing listeners from inside a
+  callback is safe
+
+### Deprecated
+The following keep working; each has an IDE quick-fix to its replacement.
+- `FastPixPlayer.setMediaItems(...)` → `setPlaylist(...)`
+- `PreloadConfig(enabled, targetPreloadDurationMs)`, `PreloadConfig.ENABLED`, `PreloadConfig.FEED`,
+  `PreloadConfig.targetPreloadDurationMs` → `PreloadConfig(count = 1)`
+- `CacheConfig.forOnDemandFeed()` and `CacheConfig.cachePlaylists` → `CacheConfig.enabled()`
+- `FastPixPreCacher`, `PreCacheConfig`, `PreCacheListener` → a playlist with `PreloadConfig(count = N)`
+  and the cache enabled
+
+### Sample app
+- **Episode Feed** uses `setPlaylist`, `next()`/`previous()` and `PlaylistListener`; its Preload toggle
+  switches `PreloadConfig(count = 3, behind = 1)`, and `cache` / `prerender` launch extras turn on the
+  disk cache and `PrerenderConfig(count = 1, behind = 1)`
+- **Reel Feed: ViewPager + Compose player** (`feed/ViewPagerFeedActivity`, `feed/CommonVideoPlayer`):
+  a vertical `ViewPager2` of `ComposeView` pages calling one shared player composable, fed by
+  `FastPixPlayerPool` with preload, cache and pre-render; a toggle compares pre-render on and off
+- **Compose reel repro** (`ComposeReelFeedActivity`): Compose `VerticalPager` and ViewPager2 +
+  `ComposeView` hosts over shared, per-page, hand-pre-rendered and `FastPixPlayerPool` players,
+  logging per swipe how long the page showed black and how long it took to start
+
+### Version
+- Bumped library version to `2.2.0`
+
 ## [2.1.0]
 
 ### Added

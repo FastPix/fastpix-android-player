@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package io.fastpix.media3.cache
 
 /**
@@ -6,6 +8,9 @@ package io.fastpix.media3.cache
  * The defaults warm roughly the first two segments (a few seconds) of each item, which is enough
  * for the player to render a first frame from disk on arrival while the rest streams normally.
  */
+@Deprecated(
+    "Configures the deprecated FastPixPreCacher. Use PreloadConfig(count = N) with a playlist.",
+)
 data class PreCacheConfig(
     /**
      * Number of media segments warmed per item, starting from the first. Two is usually enough to
@@ -81,6 +86,7 @@ data class PreCacheConfig(
 }
 
 /** Optional observer for pre-cache activity; useful while tuning, not required in production. */
+@Deprecated("Observes the deprecated FastPixPreCacher.")
 interface PreCacheListener {
     /** A URL finished warming, having written [bytesWritten] bytes to the cache. */
     fun onPreCached(url: String, bytesWritten: Long) {}

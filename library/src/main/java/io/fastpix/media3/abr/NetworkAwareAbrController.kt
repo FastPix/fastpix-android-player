@@ -42,6 +42,11 @@ class NetworkAwareAbrController(
     private val trackSelector: DefaultTrackSelector,
     private val networkMonitor: NetworkMonitor,
     private val config: AbrConfig,
+    /**
+     * Told each cap as it is applied, so selectors that must agree with playback — the preload
+     * engine's, which picks the rendition to preload — can follow it.
+     */
+    private val onCapApplied: ((maxVideoBitrateBps: Int) -> Unit)? = null,
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -243,6 +248,7 @@ class NetworkAwareAbrController(
             .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
             .build()
         trackSelector.setParameters(params)
+        onCapApplied?.invoke(bps)
     }
 
     /**

@@ -235,6 +235,19 @@ interface PlaybackListener {
     }
 
     /**
+     * Called when the first video frame of the current media is on the surface.
+     *
+     * "Ready" means enough is buffered to play; this means pixels are showing. Use it to hide a
+     * poster or placeholder at exactly the right moment. For a pre-rendered item it fires while the
+     * item is still paused and off screen, so by the time the user reaches it the frame is there.
+     *
+     * Fires once per media item. Default implementation does nothing.
+     */
+    fun onFirstFrameRendered() {
+        // Default empty implementation - optional to override
+    }
+
+    /**
      * Called when the video is ready to play for the first time after media is set.
      *
      * This callback is triggered when the player transitions to

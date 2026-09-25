@@ -107,6 +107,14 @@
                 android:layout_marginBottom="8dp"
                 android:text="Episode Feed (queue + next-item preload)" />
 
+            <Button
+                android:id="@+id/btn_viewpager_feed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="16dp"
+                android:layout_marginBottom="8dp"
+                android:text="Reel Feed: ViewPager + Compose player (pre-render)" />
+
             <LinearLayout
                 android:visibility="gone"
                 android:layout_width="match_parent"

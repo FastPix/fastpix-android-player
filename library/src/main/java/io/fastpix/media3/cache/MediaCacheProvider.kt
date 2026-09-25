@@ -95,11 +95,14 @@ object MediaCacheProvider {
         context: Context,
         cache: Cache,
         config: CacheConfig,
+        itemKey: String? = null,
     ): CacheDataSource.Factory =
         CacheDataSource.Factory()
             .setCache(cache)
             .setUpstreamDataSourceFactory(DefaultDataSource.Factory(context.applicationContext))
-            .setCacheKeyFactory(FastPixCacheKeyFactory(config.cacheKeyIgnoredQueryParameters))
+            .setCacheKeyFactory(
+                FastPixCacheKeyFactory(config.cacheKeyIgnoredQueryParameters, itemKey)
+            )
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
     /**
@@ -113,8 +116,20 @@ object MediaCacheProvider {
         context: Context,
         cache: Cache,
         config: CacheConfig,
+    ): DataSource.Factory = buildDataSourceFactory(context, cache, config, itemKey = null)
+
+    /**
+     * [buildDataSourceFactory] for one asset: FastPix segments load under keys that survive URL
+     * re-signing (see [FastPixCacheKeyFactory]).
+     */
+    @Suppress("DEPRECATION")
+    internal fun buildDataSourceFactory(
+        context: Context,
+        cache: Cache,
+        config: CacheConfig,
+        itemKey: String?,
     ): DataSource.Factory {
-        val cacheFactory = cacheDataSourceFactory(context, cache, config)
+        val cacheFactory = cacheDataSourceFactory(context, cache, config, itemKey)
         if (config.cachePlaylists) return cacheFactory
         return PlaylistAwareDataSourceFactory(
             cacheFactory = cacheFactory,

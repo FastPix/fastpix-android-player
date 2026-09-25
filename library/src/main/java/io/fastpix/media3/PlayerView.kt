@@ -1,14 +1,19 @@
 package io.fastpix.media3
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.ImageView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import io.fastpix.media3.core.FastPixPlayer
+import io.fastpix.media3.prerender.PrerenderSurfaceHost
 import io.fastpix.player.R
 import androidx.media3.ui.PlayerView as Media3PlayerView
 
@@ -41,9 +46,12 @@ class PlayerView @JvmOverloads constructor(
      * - Video does not restart on rotation
      *
      * When `false`:
-     * - Player is released when view is detached
-     * - A fresh player instance is created on reattach
+     * - A player the view created itself is released when the view is detached
      * - Playback will restart from the beginning
+     *
+     * Either way, a player assigned through [player] belongs to the app: the view never releases
+     * it, only unbinds its surface on detach and binds it again on re-attach. Release it yourself,
+     * or call [release].
      *
      * **Note:** This property should be set before the view is attached to the window
      * for best results. Changing it after attachment may not have the expected effect
@@ -79,6 +87,54 @@ class PlayerView @JvmOverloads constructor(
      * Can be set externally or auto-created when needed.
      */
     private var fastPixPlayer: FastPixPlayer? = null
+
+    /**
+     * Whether [fastPixPlayer] was created by this view (lazily, for view-level media calls) rather
+     * than assigned by the app. Only a player the view created may be released by the view.
+     */
+    private var ownsPlayer = false
+
+    /**
+     * 1x1 surface a pre-rendering player decodes upcoming entries into, to copy their first frames
+     * out. Tucked behind the video; created only for a player that pre-renders.
+     */
+    private var captureSurface: SurfaceView? = null
+
+    /** Shows a captured first frame over the video while the player starts that entry. */
+    private var bridgeView: ImageView? = null
+
+    /** The player this view has reported itself as showing, while attached. */
+    private var displayedPlayer: FastPixPlayer? = null
+
+    private val prerenderHost = object : PrerenderSurfaceHost {
+        override val captureSurfaceView: SurfaceView
+            get() = captureSurface ?: SurfaceView(context).also { surface ->
+                // Behind everything; its size is irrelevant, the decoder writes full-size frames.
+                addView(surface, 0, LayoutParams(1, 1))
+                captureSurface = surface
+            }
+
+        override val viewWidth: Int get() = media3PlayerView.width
+        override val viewHeight: Int get() = media3PlayerView.height
+
+        override fun showBridge(frame: Bitmap) {
+            val view = bridgeView ?: ImageView(context).also { image ->
+                image.setBackgroundColor(Color.BLACK)
+                addView(image, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+                bridgeView = image
+            }
+            view.scaleType = bridgeScaleType()
+            view.setImageBitmap(frame)
+            view.visibility = View.VISIBLE
+        }
+
+        override fun hideBridge() {
+            bridgeView?.apply {
+                visibility = View.GONE
+                setImageDrawable(null)
+            }
+        }
+    }
 
     /**
      * Track if the view is currently attached to avoid double releases.
@@ -150,6 +206,10 @@ class PlayerView @JvmOverloads constructor(
      * Setting this property attaches the player to the view for rendering.
      * If set to null, the view will auto-create a player with default settings when needed.
      *
+     * A player you assign stays yours: the view never releases it on detach, so the same player
+     * can move between views, or survive a page being recycled in a pager. Release it when you are
+     * done with it.
+     *
      * Getting this property will return the current player instance, or create one
      * automatically if no player has been set. The player can be created even if
      * the view is not yet attached to the window (it will be attached when the
@@ -174,14 +234,29 @@ class PlayerView @JvmOverloads constructor(
             return fastPixPlayer
         }
         set(value) {
+            val previous = fastPixPlayer
+            previous?.let { unbindDisplayedPlayer(it) }
+
             // Detach current player from view
             media3PlayerView.player = null
 
+            // A player this view created is only reachable through the view, so replacing it
+            // would otherwise leak it.
+            if (previous != null && previous !== value && ownsPlayer) {
+                val viewId = id
+                if (viewId != View.NO_ID && PlayerStore.getPlayer(viewId) === previous) {
+                    PlayerStore.removePlayer(viewId)
+                }
+                previous.release()
+            }
+
             fastPixPlayer = value
+            ownsPlayer = false
 
             // Attach new player to view
             if (value != null && isAttachedToWindow) {
                 media3PlayerView.player = value.getExoPlayer()
+                bindDisplayedPlayer()
             }
         }
 
@@ -209,37 +284,40 @@ class PlayerView @JvmOverloads constructor(
     }
 
     /**
-     * Creates a new FastPixPlayer instance if one doesn't exist, or retrieves an existing
-     * instance from the store if available (after configuration change).
+     * Recovers the player stored for this view across a configuration change, if any.
      *
-     * Creates a player with default settings (loop = false, autoplay = false) using the builder pattern.
-     * For custom configuration, create the player externally using FastPixPlayer.Builder
-     * and set it via the player property (Media3 pattern).
+     * Never creates a player: a view that is merely attached — a page in a pager waiting for the
+     * app to assign one, say — must not spin up a player of its own.
+     */
+    private fun recoverStoredPlayer() {
+        if (fastPixPlayer != null) return
+        val viewId = id
+        if (!retainPlayerOnConfigChange || viewId == View.NO_ID) return
+        val storedPlayer = PlayerStore.getPlayer(viewId) ?: return
+        fastPixPlayer = storedPlayer
+        ownsPlayer = PlayerStore.isOwnedByView(viewId)
+    }
+
+    /**
+     * Returns a player for view-level calls ([setMediaItem], reading [player]) when the app has not
+     * assigned one: recovers the stored instance after a configuration change, or creates one with
+     * default settings (loop = false, autoplay = false), which this view then owns.
      *
-     * Ensures proper attachment to the view surface.
-     * Called automatically when the view is attached to window.
+     * For custom configuration, create the player with FastPixPlayer.Builder and assign it through
+     * [player] instead (Media3 pattern).
      */
     private fun createPlayerIfNeeded() {
         if (fastPixPlayer == null) {
-            val viewId = id
+            recoverStoredPlayer()
 
-            // Try to recover existing player instance after config change
-            if (retainPlayerOnConfigChange && viewId != View.NO_ID) {
-                val storedPlayer = PlayerStore.getPlayer(viewId)
-                if (storedPlayer != null) {
-                    fastPixPlayer = storedPlayer
-                }
-            }
-
-            // Create new player if not found or retention is disabled
-            // Use builder pattern with default settings
             if (fastPixPlayer == null) {
                 fastPixPlayer = FastPixPlayer.Builder(context).build()
+                ownsPlayer = true
 
-                // Store player instance if retention is enabled and view has an ID
                 // Store immediately so it's available even if view is quickly detached
+                val viewId = id
                 if (retainPlayerOnConfigChange && viewId != View.NO_ID) {
-                    PlayerStore.putPlayer(viewId, fastPixPlayer)
+                    PlayerStore.putPlayer(viewId, fastPixPlayer, ownedByView = true)
                 }
             }
 
@@ -252,42 +330,49 @@ class PlayerView @JvmOverloads constructor(
     }
 
     /**
-     * Releases the FastPixPlayer instance.
+     * Unbinds the player from this view on detach, releasing it only when that is the view's call.
      *
-     * If [retainPlayerOnConfigChange] is true and the view has an ID, the player instance
-     * is preserved in the store for recovery after configuration changes.
-     * Otherwise, the player is fully released.
+     * - [forceRelease]: always released — the app asked for it through [release].
+     * - [retainPlayerOnConfigChange] with a view id: kept in the store for recovery after a
+     *   configuration change.
+     * - Otherwise a player the view created is released, and a player the app assigned is left
+     *   alone: only its surface is unbound, and the view keeps the reference so re-attaching binds
+     *   it again. Views in pagers and Compose `AndroidView`s detach and re-attach routinely, and
+     *   releasing the app's player there would leave it dead with no error.
      *
      * @param forceRelease If true, always release the player regardless of retention setting.
      */
     private fun releasePlayer(forceRelease: Boolean = false) {
         val player = fastPixPlayer ?: return
-
         val viewId = id
-        val shouldRetain = retainPlayerOnConfigChange && !forceRelease && viewId != View.NO_ID
 
-        if (shouldRetain) {
-            // Store player in registry before detaching (in case it wasn't stored yet)
-            PlayerStore.putPlayer(viewId, player)
+        unbindDisplayedPlayer(player)
 
-            // Detach player from view surface (player state is preserved)
-            media3PlayerView.player = null
+        // Detach player from view surface (player state is preserved)
+        media3PlayerView.player = null
 
-            // Clear local reference but keep player in store
-            fastPixPlayer = null
-        } else {
-            // Detach player from view surface
-            media3PlayerView.player = null
-
-            // Truly release the player
-            player.release()
-
-            // Remove from store if it exists
-            if (viewId != View.NO_ID) {
-                PlayerStore.removePlayer(viewId)
+        when {
+            forceRelease -> {
+                player.release()
+                if (viewId != View.NO_ID) PlayerStore.removePlayer(viewId)
+                fastPixPlayer = null
+                ownsPlayer = false
             }
 
-            fastPixPlayer = null
+            retainPlayerOnConfigChange && viewId != View.NO_ID -> {
+                // Clear local reference but keep player in store
+                PlayerStore.putPlayer(viewId, player, ownedByView = ownsPlayer)
+                fastPixPlayer = null
+                ownsPlayer = false
+            }
+
+            ownsPlayer -> {
+                player.release()
+                fastPixPlayer = null
+                ownsPlayer = false
+            }
+
+            else -> Unit // The app's player: surface unbound above, reference kept for re-attach.
         }
     }
 
@@ -295,15 +380,46 @@ class PlayerView @JvmOverloads constructor(
         super.onAttachedToWindow()
         isAttachedToWindow = true
 
-        // Create or recover player instance if not set externally
-        if (fastPixPlayer == null) {
-            createPlayerIfNeeded()
-        }
+        // Recover the player after a configuration change. A view with no player stays empty until
+        // the app assigns one or makes a view-level media call.
+        recoverStoredPlayer()
 
         // Attach player to view surface
         fastPixPlayer?.let { player ->
             media3PlayerView.player = player.getExoPlayer()
         }
+        bindDisplayedPlayer()
+    }
+
+    /**
+     * Tells the player this attached view is showing it — so a pool will not hand it to another
+     * page — and, for a pre-rendering player, lets it capture and show frames through this view.
+     */
+    private fun bindDisplayedPlayer() {
+        val player = fastPixPlayer ?: return
+        if (!isAttachedToWindow) return
+        if (displayedPlayer !== player) {
+            displayedPlayer?.onViewDisplayChanged(this, false)
+            player.onViewDisplayChanged(this, true)
+            displayedPlayer = player
+        }
+        if (player.prerendersThroughView) player.setPrerenderHost(prerenderHost)
+    }
+
+    private fun unbindDisplayedPlayer(player: FastPixPlayer) {
+        if (displayedPlayer === player) {
+            player.onViewDisplayChanged(this, false)
+            displayedPlayer = null
+        }
+        player.clearPrerenderHost(prerenderHost)
+        prerenderHost.hideBridge()
+    }
+
+    /** Scales a captured frame the way [resizeMode] scales the video, so the handoff lines up. */
+    private fun bridgeScaleType(): ImageView.ScaleType = when (resizeMode) {
+        ResizeMode.ZOOM -> ImageView.ScaleType.CENTER_CROP
+        ResizeMode.FILL -> ImageView.ScaleType.FIT_XY
+        else -> ImageView.ScaleType.FIT_CENTER
     }
 
     override fun onDetachedFromWindow() {
@@ -321,7 +437,8 @@ class PlayerView @JvmOverloads constructor(
      * Call this method when you're certain the player should be released,
      * such as in Activity.onDestroy() when the activity is finishing.
      *
-     * This will force release the player even if [retainPlayerOnConfigChange] is true.
+     * This will force release the player even if [retainPlayerOnConfigChange] is true, including a
+     * player the app assigned through [player].
      */
     fun release() {
         releasePlayer(forceRelease = true)

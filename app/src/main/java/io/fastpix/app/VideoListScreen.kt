@@ -1,5 +1,6 @@
 package io.fastpix.app
 
+import io.fastpix.app.feed.ViewPagerFeedActivity
 import android.content.Intent
 import android.os.Bundle
 import android.widget.ArrayAdapter
@@ -52,6 +53,10 @@ class VideoListScreen : AppCompatActivity() {
 
         binding.btnEpisodeFeed.setOnClickListener {
             startActivity(EpisodeFeedActivity.newIntent(this, preloadEnabled = true))
+        }
+
+        binding.btnViewpagerFeed.setOnClickListener {
+            startActivity(ViewPagerFeedActivity.newIntent(this))
         }
 
         binding.btnComposePlayer.setOnClickListener {
