@@ -69,6 +69,24 @@
                         android:src="@drawable/ic_play" />
 
                     <ImageView
+                        android:id="@+id/iv_previous"
+                        android:layout_width="35dp"
+                        android:layout_height="35dp"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="5dp"
+                        android:src="@android:drawable/ic_media_previous"
+                        android:visibility="gone" />
+
+                    <ImageView
+                        android:id="@+id/iv_next"
+                        android:layout_width="35dp"
+                        android:layout_height="35dp"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginTop="5dp"
+                        android:src="@android:drawable/ic_media_next"
+                        android:visibility="gone" />
+
+                    <ImageView
                         android:id="@+id/iv_backward_seek"
                         android:layout_width="35dp"
                         android:layout_height="35dp"
@@ -172,6 +190,21 @@
                 android:textSize="16sp"
                 android:visibility="gone"
                 tools:text="Subtitle text" />
+
+            <TextView
+                android:id="@+id/tv_startup_stats"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentStart="true"
+                android:layout_alignParentTop="true"
+                android:layout_marginStart="16dp"
+                android:layout_marginTop="48dp"
+                android:background="#99000000"
+                android:fontFamily="monospace"
+                android:padding="8dp"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                tools:text="Ready: 300 ms" />
 
             <ProgressBar
                 android:id="@+id/loader"

@@ -97,4 +97,27 @@ class ItemScopedCacheKeyTest {
         assertNull(FastPixItemKeys.fromStreamUrl("https://notstream.fastpix.com.evil.io/abc.m3u8"))
         assertNull(FastPixItemKeys.fromStreamUrl(null))
     }
+
+    @Test
+    fun streamUrlIsKeyedByAssetAcrossHosts() {
+        val id = "d3fcdcdd-0608-4767-888d-c7dd5c077a04"
+        val io = assetA.streamScoped("https://stream.fastpix.io/$id.m3u8")
+        assertEquals(io, assetA.streamScoped("https://stream.fastpix.com/$id.m3u8"))
+        assertEquals(io, assetA.streamScoped("https://video.customer.example/$id.m3u8?token=abc"))
+    }
+
+    @Test
+    fun streamUrlKeepsContentSelectingParameters() {
+        val id = "d3fcdcdd-0608-4767-888d-c7dd5c077a04"
+        assertNotEquals(
+            assetA.streamScoped("https://stream.fastpix.com/$id.m3u8"),
+            assetA.streamScoped("https://stream.fastpix.com/$id.m3u8?maxResolution=720p"),
+        )
+    }
+
+    @Test
+    fun streamUrlOfAnotherAssetIsNotScoped() {
+        assertNull(assetA.streamScoped("https://stream.fastpix.com/112a2222-0f31-44a0-bcf6-30cfa6e1d17d.m3u8"))
+        assertNull(unscoped.streamScoped("https://stream.fastpix.com/d3fcdcdd-0608-4767-888d-c7dd5c077a04.m3u8"))
+    }
 }

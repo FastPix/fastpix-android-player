@@ -106,6 +106,16 @@ data class AbrConfig(
      */
     val enableAbrDiagnosticLogging: Boolean = false,
 ) {
+    /** The video bitrate cap this config applies on [type]. */
+    internal fun maxBitrateFor(type: NetworkType): Int = when (type) {
+        NetworkType.WIFI -> wifiMaxBitrateBps
+        NetworkType.CELLULAR_5G_4G -> cellular5g4gMaxBitrateBps
+        NetworkType.CELLULAR_3G -> cellular3gMaxBitrateBps
+        NetworkType.CELLULAR_2G -> cellular2gMaxBitrateBps
+        NetworkType.OFFLINE -> cellular2gMaxBitrateBps
+        NetworkType.UNKNOWN -> unknownNetworkMaxBitrateBps
+    }
+
     companion object {
         @JvmStatic
         val DEFAULT: AbrConfig = AbrConfig()

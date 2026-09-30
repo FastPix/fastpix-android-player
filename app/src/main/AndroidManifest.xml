@@ -13,51 +13,42 @@
         <activity
             android:name=".VideoListScreen"
             android:exported="true">
-
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
         </activity>
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize">
-
-        </activity>
-
+            android:configChanges="orientation|screenSize"></activity>
         <activity
             android:name=".ComposePlayerActivity"
-            android:exported="true"
-            android:configChanges="orientation|screenSize">
-
-        </activity>
-
+            android:configChanges="orientation|screenSize"
+            android:exported="true"></activity>
         <activity
             android:name=".ReelFeedActivity"
-            android:exported="true"
             android:configChanges="orientation|screenSize"
-            android:screenOrientation="portrait" >
-        </activity>
-
+            android:exported="true"
+            android:screenOrientation="portrait"></activity>
         <activity
             android:name=".EpisodeFeedActivity"
-            android:exported="true"
-            android:configChanges="orientation|screenSize" />
-
+            android:configChanges="orientation|screenSize"
+            android:exported="true" />
         <activity
             android:name=".feed.ViewPagerFeedActivity"
-            android:exported="true"
             android:configChanges="orientation|screenSize"
+            android:exported="true"
             android:screenOrientation="portrait" />
-
         <activity
             android:name=".ComposeReelFeedActivity"
-            android:exported="true"
             android:configChanges="orientation|screenSize"
+            android:exported="true"
             android:screenOrientation="portrait" />
-
+        <activity
+            android:name=".TestActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 
 </manifest>

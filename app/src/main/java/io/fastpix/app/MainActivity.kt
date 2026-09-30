@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.MenuItem
@@ -28,9 +29,14 @@ import androidx.media3.common.util.UnstableApi
 import io.fastpix.app.databinding.ActivityMainBinding
 import io.fastpix.media3.PlaybackListener
 import io.fastpix.media3.abr.AbrConfig
+import io.fastpix.media3.cache.CacheConfig
 import io.fastpix.media3.core.DrmConfig
 import io.fastpix.media3.core.FastPixPlayer
 import io.fastpix.media3.core.StreamType
+import io.fastpix.media3.playlist.PlaylistItem
+import io.fastpix.media3.playlist.PlaylistItemChangeReason
+import io.fastpix.media3.playlist.PlaylistListener
+import io.fastpix.media3.preload.PreloadConfig
 import io.fastpix.media3.seekpreview.listeners.SeekPreviewListener
 import io.fastpix.media3.seekpreview.models.PreviewFallbackMode
 import io.fastpix.media3.seekpreview.models.SeekPreviewConfig
@@ -203,6 +209,17 @@ class MainActivity : AppCompatActivity() {
         override fun onPlayerReady(durationMs: Long) {
             super.onPlayerReady(durationMs)
             binding.playerControls.isVisible = true
+            if (readyAt == 0L) {
+                readyAt = SystemClock.elapsedRealtime()
+                updateStartupStats()
+            }
+        }
+
+        override fun onFirstFrameRendered() {
+            if (firstFrameAt == 0L) {
+                firstFrameAt = SystemClock.elapsedRealtime()
+                updateStartupStats()
+            }
         }
     }
 
@@ -331,6 +348,17 @@ class MainActivity : AppCompatActivity() {
     private var defaultSubtitleName: String? = null
     private var token: String? = null
 
+    // Startup timing for the current item (all SystemClock.elapsedRealtime() millis).
+    private var activityCreatedAt = 0L
+    private var loadStartedAt = 0L
+    private var readyAt = 0L
+    private var firstFrameAt = 0L
+    private var isFirstItem = true
+
+    /** Stream URLs to play as one playlist; null for single-video mode. */
+    private var playlistUrls: List<String>? = null
+    private var playlistStartIndex = 0
+
     /**
      * Reference to the "Auto" menu item in the currently-visible video-quality popup. Held only
      * while the popup is shown so we can retitle it in real-time when ABR picks a new rendition.
@@ -340,6 +368,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        activityCreatedAt = SystemClock.elapsedRealtime()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
@@ -357,6 +386,8 @@ class MainActivity : AppCompatActivity() {
             }
         isAutoPlayEnabled = intent.getBooleanExtra(VideoListScreen.AUTO_PLAY, false)
         isLoopEnabled = intent.getBooleanExtra(VideoListScreen.LOOP, false)
+        playlistUrls = intent.getStringArrayListExtra(VideoListScreen.PLAYLIST_URLS)
+        playlistStartIndex = intent.getIntExtra(VideoListScreen.PLAYLIST_START_INDEX, 0)
         defaultAudioName = intent.getStringExtra(VideoListScreen.DEFAULT_AUDIO_NAME)
         defaultSubtitleName = intent.getStringExtra(VideoListScreen.DEFAULT_SUBTITLE_NAME)
         token = intent.getStringExtra(VideoListScreen.TOKEN)
@@ -385,7 +416,10 @@ class MainActivity : AppCompatActivity() {
         // Create FastPixPlayer with desired configuration (playback + optional seek preview)
         fastPixPlayer = FastPixPlayer.Builder(this)
             .setLoop(isLoopEnabled)
-            .setAutoplay(isAutoPlayEnabled)
+            .setAutoplay(true)
+            .setCacheConfig(CacheConfig.enabled())
+            // Playlist mode: prepare the next two entries (warmed to disk through the cache).
+            .setPreloadConfig(if (playlistUrls != null) PreloadConfig(count = 2) else PreloadConfig.DISABLED)
             .setAbrConfig(AbrConfig(enableAbrDiagnosticLogging = true))
             .setSeekPreviewConfig(
                 SeekPreviewConfig.Builder()
@@ -418,6 +452,16 @@ class MainActivity : AppCompatActivity() {
      * Called after the player is initialized.
      */
     private fun setupMediaItem() {
+        startStartupTimer()
+        playlistUrls?.let { urls ->
+            val items = urls.map { url ->
+                PlaylistItem.fastPix(Uri.parse(url).lastPathSegment.orEmpty().substringBefore(".m3u8"), token)
+            }
+            fastPixPlayer.addPlaylistListener(playlistListener)
+            fastPixPlayer.setPlaylist(items, playlistStartIndex.coerceIn(0, items.lastIndex))
+            return
+        }
+
         // Use builder pattern to create and set FastPix MediaItem from playback ID
         var playbackUrl = videoModel?.url
         val playbackUri = Uri.parse(playbackUrl)
@@ -465,6 +509,43 @@ class MainActivity : AppCompatActivity() {
      * Setup control button listeners.
      * Demonstrates the public playback control APIs.
      */
+    private val playlistListener = object : PlaylistListener {
+        override fun onPlaylistItemChanged(index: Int, item: PlaylistItem, reason: PlaylistItemChangeReason) {
+            // setPlaylist already started the timer; time each later item from when it is chosen.
+            if (reason != PlaylistItemChangeReason.PLAYLIST_SET) {
+                isFirstItem = false
+                startStartupTimer()
+            }
+            val total = playlistUrls?.size ?: 0
+            Toast.makeText(this@MainActivity, "Playlist ${index + 1}/$total ($reason)", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun startStartupTimer() {
+        loadStartedAt = SystemClock.elapsedRealtime()
+        readyAt = 0L
+        firstFrameAt = 0L
+        binding.tvStartupStats.text = "Loading…"
+    }
+
+    private fun updateStartupStats() {
+        val ready = if (readyAt > 0) "${readyAt - loadStartedAt} ms" else "…"
+        val firstFrame = if (firstFrameAt > 0) "${firstFrameAt - loadStartedAt} ms" else "…"
+        val fromOpen = when {
+            !isFirstItem -> "n/a"
+            firstFrameAt > 0 -> "${firstFrameAt - activityCreatedAt} ms"
+            else -> "…"
+        }
+        val quality = fastPixPlayer.getExoPlayer().videoFormat?.let { "${it.height}p" } ?: "…"
+        binding.tvStartupStats.text = "Ready:        $ready\n" +
+            "First frame:  $firstFrame\n" +
+            "Open → frame: $fromOpen\n" +
+            "Quality:      $quality"
+        if (firstFrameAt > 0) {
+            Log.d("MainActivityStartup", "ready=$ready firstFrame=$firstFrame openToFrame=$fromOpen quality=$quality")
+        }
+    }
+
     private fun setupControls() {
         // Set max to 100 for granular volume control (0-100 maps to 0.0-1.0)
         binding.sbVolumeSlider.max = 100
@@ -475,6 +556,16 @@ class MainActivity : AppCompatActivity() {
 
         binding.ivPlayPause.setOnClickListener {
             togglePlayPause()
+        }
+
+        val isPlaylist = playlistUrls != null
+        binding.ivPrevious.isVisible = isPlaylist
+        binding.ivNext.isVisible = isPlaylist
+        binding.ivPrevious.setOnClickListener {
+            if (!fastPixPlayer.previous()) Toast.makeText(this, "First video", Toast.LENGTH_SHORT).show()
+        }
+        binding.ivNext.setOnClickListener {
+            if (!fastPixPlayer.next()) Toast.makeText(this, "Last video", Toast.LENGTH_SHORT).show()
         }
 
         binding.ivBackwardSeek.setOnClickListener {
@@ -1017,6 +1108,7 @@ class MainActivity : AppCompatActivity() {
         fastPixPlayer.removePlaybackListener(playbackListener)
         fastPixPlayer.removeAudioTrackListener(audioTrackListener)
         fastPixPlayer.removeSubtitleTrackListener(subtitleTrackListener)
+        fastPixPlayer.removePlaylistListener(playlistListener)
         if (isFinishing) {
             binding.playerView.release()
         }

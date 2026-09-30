@@ -36,7 +36,7 @@ import java.util.Locale
  * | | Turbo OFF (pre-2.1.0) | Turbo ON |
  * |---|---|---|
  * | Buffering | `BufferConfig.MEDIA3_DEFAULT` | `BufferConfig.FEED` |
- * | Disk cache | none | `CacheConfig.forOnDemandFeed()` |
+ * | Disk cache | none | `CacheConfig.enabled()` |
  * | Pre-caching | none | next two items warmed |
  *
  * The HUD at the top reports the number that matters: milliseconds from the page becoming current
@@ -113,7 +113,13 @@ class ReelFeedActivity : AppCompatActivity() {
      * before 2.1.0: stock Media3 buffering, no cache, no warming.
      */
     private fun setUpPlaybackStack() {
-        cacheConfig = if (turboEnabled) CacheConfig.forOnDemandFeed() else CacheConfig.DISABLED
+        cacheConfig = if (turboEnabled) CacheConfig.enabled() else CacheConfig.DISABLED
+
+        // A phone-sized reel does not need more than this; it also keeps warming cheap.
+        val abrConfig = AbrConfig(
+            wifiMaxBitrateBps = FEED_BITRATE_CAP_BPS,
+            cellular5g4gMaxBitrateBps = FEED_BITRATE_CAP_BPS,
+        )
 
         preCacher = if (turboEnabled) {
             FastPixPreCacher.create(
@@ -122,12 +128,11 @@ class ReelFeedActivity : AppCompatActivity() {
                 PreCacheConfig(
                     segmentCount = 2,
                     maxBytesPerItem = 2L * 1024L * 1024L,
-                    // Must agree with the ABR cap below, or the warmed rendition is not the one
-                    // playback asks for and the whole warm is wasted.
-                    targetBitrateBps = FEED_BITRATE_CAP_BPS,
                     maxParallelItems = 2,
                     enableLogging = true,
                 ),
+                // The players' own ABR config, so the warmed rendition is the one they start on.
+                abrConfig,
             )?.apply {
                 setListener(object : PreCacheListener {
                     override fun onPreCached(url: String, bytesWritten: Long) {
@@ -140,14 +145,6 @@ class ReelFeedActivity : AppCompatActivity() {
         }
 
         val bufferConfig = if (turboEnabled) BufferConfig.FEED else BufferConfig.MEDIA3_DEFAULT
-
-        // Pinning the ladder is what makes pre-caching pay off: ABR picking 1080p on Wi-Fi while
-        // the pre-cacher warmed 480p would be a guaranteed cache miss. A phone-sized reel does not
-        // need more than this anyway.
-        val abrConfig = AbrConfig(
-            wifiMaxBitrateBps = FEED_BITRATE_CAP_BPS,
-            cellular5g4gMaxBitrateBps = FEED_BITRATE_CAP_BPS,
-        )
 
         pool = ReelPlayerPool(maxPlayers = PLAYER_POOL_SIZE) {
             FastPixPlayer.Builder(this)

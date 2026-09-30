@@ -34,7 +34,30 @@ internal class FastPixCacheKeyFactory(
     override fun buildCacheKey(dataSpec: DataSpec): String {
         dataSpec.key?.let { return it }
         val url = dataSpec.uri.toString()
-        return itemScoped(url) ?: normalize(url)
+        return itemScoped(url) ?: streamScoped(url) ?: normalize(url)
+    }
+
+    /**
+     * `fastpix-item:<itemKey>/<itemKey>.m3u8<normalised query>` for the asset's own stream URL
+     * (`<any host>/<itemKey>.m3u8`), or null otherwise.
+     *
+     * The same asset is reachable on several hosts — `stream.fastpix.com` (the SDK default),
+     * `stream.fastpix.io`, a custom domain — so keying the multivariant playlist by host would
+     * let a copy warmed under one host miss for a player loading another. Missing the master also
+     * misses every media playlist, whose URLs are re-signed on each master fetch.
+     */
+    internal fun streamScoped(url: String): String? {
+        val key = itemKey ?: return null
+        val schemeEnd = url.indexOf("://")
+        if (schemeEnd < 0) return null
+        val pathStart = url.indexOf('/', schemeEnd + 3)
+        if (pathStart < 0) return null
+        val pathEnd = url.indexOfAny(charArrayOf('?', '#'), pathStart)
+            .let { if (it < 0) url.length else it }
+
+        val path = url.substring(pathStart + 1, pathEnd)
+        if (path != "$key.m3u8") return null
+        return SCOPED_KEY_PREFIX + key + "/" + path + normalizeSuffix(url.substring(pathEnd))
     }
 
     /**

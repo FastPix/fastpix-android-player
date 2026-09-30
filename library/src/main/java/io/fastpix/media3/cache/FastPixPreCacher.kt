@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package io.fastpix.media3.cache
 
 import android.content.Context
@@ -10,9 +8,10 @@ import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.UriUtil
+import androidx.media3.common.util.Util
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSourceUtil
 import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
@@ -20,6 +19,9 @@ import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParser
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
+import io.fastpix.media3.abr.AbrConfig
+import io.fastpix.media3.abr.NetworkMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -38,10 +40,12 @@ import kotlin.coroutines.coroutineContext
  * Warms upcoming media into the disk cache so that swiping to the next item in a feed starts from
  * local bytes instead of a cold network fetch.
  *
- * **Deprecated since 2.2.0.** Set the feed as a playlist with
- * [io.fastpix.media3.core.FastPixPlayer.setPlaylist] and turn on
- * [io.fastpix.media3.preload.PreloadConfig]: the player then decides what to warm, and with the
- * cache enabled writes upcoming entries to disk in the rendition it will actually play.
+ * Works without a player: warm what the user is likely to open next — the rows of a list, the
+ * first items of a feed at app start — and the player created later starts from disk. It warms the
+ * playlists, the rendition that player will start on (see [PreCacheConfig.targetBitrateBps]) and
+ * its audio. When one player moves through a feed, a playlist with
+ * [io.fastpix.media3.preload.PreloadConfig] does the same for you and also buffers the next entry
+ * in memory.
  *
  * Without warming, arriving at a new item costs a TLS handshake, a multivariant playlist fetch, a
  * media playlist fetch, and then the first segment — four sequential round trips before a frame can
@@ -56,7 +60,7 @@ import kotlin.coroutines.coroutineContext
  *
  * ```kotlin
  * // once, e.g. in your Application or feed ViewModel
- * val cacheConfig = CacheConfig.forOnDemandFeed()
+ * val cacheConfig = CacheConfig.enabled()
  * val preCacher = FastPixPreCacher.create(context, cacheConfig)
  *
  * // whenever the visible page changes, hand it the next few URLs
@@ -67,28 +71,51 @@ import kotlin.coroutines.coroutineContext
  * failed warm must never affect playback.
  */
 @UnstableApi
-@Deprecated(
-    "Use a playlist with FastPixPlayer.Builder.setPreloadConfig(PreloadConfig(count = N)); with " +
-            "the cache enabled, upcoming entries are written to disk automatically.",
-)
 class FastPixPreCacher private constructor(
     context: Context,
     cache: Cache,
     private val cacheConfig: CacheConfig,
     private val config: PreCacheConfig,
+    private val abrConfig: AbrConfig,
 ) {
 
     private val appContext: Context = context.applicationContext
     private val cache: Cache = cache
-    private val upstreamFactory = DefaultDataSource.Factory(appContext)
 
     /**
      * Bitrate the warmed rendition is chosen against, when supplied by the player that will play
      * it — which knows its current cap and bandwidth estimate. Falls back to
-     * [PreCacheConfig.targetBitrateBps].
+     * [PreCacheConfig.targetBitrateBps], then to [startEstimate].
      */
     @Volatile
     internal var targetBitrateProvider: (() -> Int)? = null
+
+    /**
+     * Stands in for a player that does not exist yet: a bandwidth meter that never sees a transfer
+     * holds exactly the initial estimate a newly built player's meter starts from, and the network
+     * monitor gives the cap that player's ABR controller would apply.
+     */
+    private val startEstimateLazy = lazy {
+        StartEstimate(
+            DefaultBandwidthMeter.Builder(appContext).build(),
+            NetworkMonitor(appContext, abrConfig.cellularHighMinKbps, abrConfig.cellularMediumMinKbps)
+                .also { it.register() },
+        )
+    }
+    private val startEstimate by startEstimateLazy
+
+    private class StartEstimate(val meter: DefaultBandwidthMeter, val network: NetworkMonitor)
+
+    /** Display size the player's track selector limits the ladder to by default. */
+    private val viewport by lazy { Util.getCurrentDisplayModeSize(appContext) }
+
+    private fun targetBitrate(): Int {
+        targetBitrateProvider?.let { return it() }
+        if (config.targetBitrateBps != PreCacheConfig.TARGET_BITRATE_AUTO) return config.targetBitrateBps
+        val estimate = (startEstimate.meter.bitrateEstimate * abrConfig.bandwidthFraction).toLong()
+        val cap = abrConfig.maxBitrateFor(startEstimate.network.currentType).toLong()
+        return minOf(estimate, cap).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
 
     /** Cache-backed data source keyed for [itemKey]'s asset (see [FastPixCacheKeyFactory]). */
     private fun cacheFactoryFor(itemKey: String?) =
@@ -179,6 +206,7 @@ class FastPixPreCacher private constructor(
         released = true
         cancelAll()
         scope.cancel()
+        if (startEstimateLazy.isInitialized()) startEstimate.network.unregister()
     }
 
     private fun start(url: String, itemKey: String?) {
@@ -217,6 +245,7 @@ class FastPixPreCacher private constructor(
     private suspend fun warmUrl(url: String, itemKey: String?, warm: Warm): Long {
         val uri = Uri.parse(url)
         warm.cacheFactory = cacheFactoryFor(itemKey)
+        warm.playlistFactory = MediaCacheProvider.buildDataSourceFactory(appContext, cache, cacheConfig, itemKey)
         return if (isHlsUri(uri)) warmHls(uri, warm) else warmProgressive(uri, warm)
     }
 
@@ -240,6 +269,11 @@ class FastPixPreCacher private constructor(
                     ?: throw IllegalStateException("${variant.url} is not a media playlist")
                 if (config.includeAudioRendition) {
                     audioUri = selectAudioRenditionUri(playlist, variant)
+                }
+                // Media3 loads the first-listed variant's playlist before its track selection runs,
+                // whichever variant it then plays; a couple of KB saves that round trip.
+                playlist.variants.firstOrNull()?.url?.takeIf { it != variant.url }?.let { first ->
+                    runCatching { parsePlaylist(first, warm) }
                 }
             }
 
@@ -350,11 +384,12 @@ class FastPixPreCacher private constructor(
         return written
     }
 
-    /** Fetches and parses a playlist, honouring [CacheConfig.cachePlaylists] for where it lands. */
-    @Suppress("DEPRECATION")
+    /**
+     * Fetches and parses a playlist through the same data source the player uses, so a playlist
+     * that is safe to store (see [PlaylistStore]) is on disk when the item is opened.
+     */
     private fun parsePlaylist(uri: Uri, warm: Warm): HlsPlaylist {
-        val factory = if (cacheConfig.cachePlaylists) warm.cacheFactory!! else upstreamFactory
-        val dataSource = factory.createDataSource()
+        val dataSource = warm.playlistFactory!!.createDataSource()
         val bytes = try {
             dataSource.open(DataSpec(uri))
             DataSourceUtil.readToEnd(dataSource)
@@ -365,36 +400,47 @@ class FastPixPreCacher private constructor(
     }
 
     /**
-     * Picks the rendition to warm: the highest variant at or below
-     * [PreCacheConfig.targetBitrateBps], or the lowest on the ladder when every variant is above it.
+     * Picks the rendition to warm: the one the player will start on (see [WarmRenditionPicker]),
+     * judged against [targetBitrate].
      */
     private fun selectVariant(
         playlist: HlsMultivariantPlaylist,
     ): HlsMultivariantPlaylist.Variant? {
-        val variants = playlist.variants.filter { it.format.bitrate != Format.NO_VALUE }
-        if (variants.isEmpty()) return playlist.variants.firstOrNull()
-        val target = targetBitrateProvider?.invoke() ?: config.targetBitrateBps
-        val atOrBelowTarget = variants.filter { it.format.bitrate <= target }
-        return atOrBelowTarget.maxByOrNull { it.format.bitrate }
-            ?: variants.minByOrNull { it.format.bitrate }
+        val variants = playlist.variants
+        val target = targetBitrate()
+        val index = WarmRenditionPicker.pick(
+            variants.map { WarmRenditionPicker.Candidate(it.format.bitrate, it.format.width, it.format.height) },
+            target,
+            viewport.x,
+            viewport.y,
+        )
+        return variants.getOrNull(index)?.also {
+            log("target ${target}bps → warming ${it.format.width}x${it.format.height} @ ${it.format.bitrate}bps")
+        }
     }
 
     /**
-     * Finds the audio rendition the chosen [variant] references. Renditions without a URI are
-     * muxed into the variant itself and need no separate warm.
+     * Finds the audio rendition the player will load alongside the chosen [variant]. Renditions
+     * without a URI are muxed into the variant itself and need no separate warm.
+     *
+     * The variant's `AUDIO` group only tells us which *track* (by NAME) it carries. Media3's
+     * `HlsMediaPeriod` merges every rendition sharing that NAME — across all groups — into one
+     * audio track group, and with identical formats plays the first of them in manifest order,
+     * regardless of the video variant. So a 540p variant pointing at `audio-lo` still plays
+     * `audio-hi` when `hi` is listed first; warming the variant's own group would miss.
      */
     private fun selectAudioRenditionUri(
         playlist: HlsMultivariantPlaylist,
         variant: HlsMultivariantPlaylist.Variant,
     ): Uri? {
         val groupId = variant.audioGroupId ?: return null
-        val candidates = playlist.audios.filter { it.groupId == groupId && it.url != null }
-        if (candidates.isEmpty()) return null
-        // Prefer the rendition the player would default to, falling back to the first in the group.
-        val default = candidates.firstOrNull { rendition ->
+        val inGroup = playlist.audios.filter { it.groupId == groupId && it.url != null }
+        if (inGroup.isEmpty()) return null
+        // The track the player would default to, falling back to the first in the group.
+        val track = inGroup.firstOrNull { rendition ->
             rendition.format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0
-        }
-        return (default ?: candidates.first()).url
+        } ?: inGroup.first()
+        return playlist.audios.first { it.name == track.name && it.url != null }.url
     }
 
     private fun isHlsUri(uri: Uri): Boolean {
@@ -414,6 +460,10 @@ class FastPixPreCacher private constructor(
         /** Cache-backed source keyed for the asset being warmed; set before any download. */
         @Volatile
         var cacheFactory: CacheDataSource.Factory? = null
+
+        /** Source playlists are fetched through: the player's own, so stored playlists match. */
+        @Volatile
+        var playlistFactory: DataSource.Factory? = null
 
         @Volatile
         var currentWriter: CacheWriter? = null
@@ -437,6 +487,8 @@ class FastPixPreCacher private constructor(
         /**
          * Creates a pre-cacher backed by the process-wide media cache.
          *
+         * @param abrConfig the [AbrConfig] the player that will play these items is built with, so
+         *   the warmed rendition matches the one it starts on. Only needed when it is not the default.
          * @return null when [cacheConfig] is disabled or the cache could not be opened — in that
          *   case there is nowhere to warm into, and callers should simply skip pre-caching.
          */
@@ -446,9 +498,10 @@ class FastPixPreCacher private constructor(
             context: Context,
             cacheConfig: CacheConfig,
             config: PreCacheConfig = PreCacheConfig.DEFAULT,
+            abrConfig: AbrConfig = AbrConfig.DEFAULT,
         ): FastPixPreCacher? {
             val cache = MediaCacheProvider.getOrCreate(context, cacheConfig) ?: return null
-            return FastPixPreCacher(context, cache, cacheConfig, config)
+            return FastPixPreCacher(context, cache, cacheConfig, config, abrConfig)
         }
 
         /**
@@ -461,7 +514,7 @@ class FastPixPreCacher private constructor(
             cacheConfig: CacheConfig,
             targetBitrate: () -> Int,
         ): FastPixPreCacher =
-            FastPixPreCacher(context, cache, cacheConfig, PreCacheConfig.DEFAULT).apply {
+            FastPixPreCacher(context, cache, cacheConfig, PreCacheConfig.DEFAULT, AbrConfig.DEFAULT).apply {
                 targetBitrateProvider = targetBitrate
             }
     }

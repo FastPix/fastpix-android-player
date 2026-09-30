@@ -18,8 +18,40 @@ val dummyData = listOf<DummyData>(
         "https://stream.fastpix.io/2125094c-db43-4748-90e1-18539f2ccf98.m3u8",
     ),
     DummyData(
-        "DRM Playback",
-        "https://stream.fastpix.io/f89d40ab-b457-4fed-8d13-84d51eb62dfc.m3u8",
+        "Sprite Sheet",
+        "https://stream.fastpix.io/ca854fd4-a3d0-4525-bd43-80de50887e1a.m3u8",
+    ),
+    DummyData(
+        "Vertical Video",
+        "https://stream.fastpix.io/b7aeedfa-715f-4cc8-b568-237dfb889131.m3u8",
+    ),
+    DummyData(
+        "3ad91e5f-0f45-403f-bda0-2a668a3581ee",
+        "https://stream.fastpix.io/3ad91e5f-0f45-403f-bda0-2a668a3581ee.m3u8",
+    ),
+    DummyData(
+        "46c09d0c-d97a-44b2-9737-c5e6daf30a41",
+        "https://stream.fastpix.io/46c09d0c-d97a-44b2-9737-c5e6daf30a41.m3u8",
+    ),
+    DummyData(
+        "f19268f5-9719-403f-87c9-b604fb3bdce3",
+        "https://stream.fastpix.io/f19268f5-9719-403f-87c9-b604fb3bdce3.m3u8",
+    ),
+    DummyData(
+        "ca854fd4-a3d0-4525-bd43-80de50887e1a",
+        "https://stream.fastpix.io/ca854fd4-a3d0-4525-bd43-80de50887e1a.m3u8",
+    ),
+    DummyData(
+        "d3fcdcdd-0608-4767-888d-c7dd5c077a04",
+        "https://stream.fastpix.io/d3fcdcdd-0608-4767-888d-c7dd5c077a04.m3u8",
+    ),
+    DummyData(
+        "Multiple Default Audio",
+        "https://stream.fastpix.io/6a49da1a-6c3e-4c2b-96d2-a0606b8e252a.m3u8",
+    ),
+    DummyData(
+        "Multiple Audio Tracks",
+        "https://stream.fastpix.io/2125094c-db43-4748-90e1-18539f2ccf98.m3u8",
     ),
     DummyData(
         "Sprite Sheet",
@@ -42,8 +74,40 @@ val dummyData = listOf<DummyData>(
         "https://stream.fastpix.io/f19268f5-9719-403f-87c9-b604fb3bdce3.m3u8",
     ),
     DummyData(
-        "112a2222-0f31-44a0-bcf6-30cfa6e1d17d",
-        "https://stream.fastpix.io/112a2222-0f31-44a0-bcf6-30cfa6e1d17d.m3u8",
+        "ca854fd4-a3d0-4525-bd43-80de50887e1a",
+        "https://stream.fastpix.io/ca854fd4-a3d0-4525-bd43-80de50887e1a.m3u8",
+    ),
+    DummyData(
+        "d3fcdcdd-0608-4767-888d-c7dd5c077a04",
+        "https://stream.fastpix.io/d3fcdcdd-0608-4767-888d-c7dd5c077a04.m3u8",
+    ),
+    DummyData(
+        "Multiple Default Audio",
+        "https://stream.fastpix.io/6a49da1a-6c3e-4c2b-96d2-a0606b8e252a.m3u8",
+    ),
+    DummyData(
+        "Multiple Audio Tracks",
+        "https://stream.fastpix.io/2125094c-db43-4748-90e1-18539f2ccf98.m3u8",
+    ),
+    DummyData(
+        "Sprite Sheet",
+        "https://stream.fastpix.io/ca854fd4-a3d0-4525-bd43-80de50887e1a.m3u8",
+    ),
+    DummyData(
+        "Vertical Video",
+        "https://stream.fastpix.io/b7aeedfa-715f-4cc8-b568-237dfb889131.m3u8",
+    ),
+    DummyData(
+        "3ad91e5f-0f45-403f-bda0-2a668a3581ee",
+        "https://stream.fastpix.io/3ad91e5f-0f45-403f-bda0-2a668a3581ee.m3u8",
+    ),
+    DummyData(
+        "46c09d0c-d97a-44b2-9737-c5e6daf30a41",
+        "https://stream.fastpix.io/46c09d0c-d97a-44b2-9737-c5e6daf30a41.m3u8",
+    ),
+    DummyData(
+        "f19268f5-9719-403f-87c9-b604fb3bdce3",
+        "https://stream.fastpix.io/f19268f5-9719-403f-87c9-b604fb3bdce3.m3u8",
     ),
     DummyData(
         "ca854fd4-a3d0-4525-bd43-80de50887e1a",

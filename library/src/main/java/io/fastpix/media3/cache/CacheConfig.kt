@@ -20,7 +20,8 @@ import java.io.File
  * config to reach [MediaCacheProvider] wins for the life of the process.
  *
  * Safe for any content, live included. FastPix streams are keyed by asset rather than by signed
- * URL, so their segments are reused across sessions and token refreshes without caching playlists.
+ * URL, so their segments are reused across sessions and token refreshes. Playlists are kept only
+ * while safe to reuse — see [maxPlaylistAgeMs].
  *
  * Combine with [io.fastpix.media3.preload.PreloadConfig] and upcoming playlist entries are written
  * to disk before the user reaches them.
@@ -68,14 +69,32 @@ data class CacheConfig(
      * Do not point this at a directory used by any other `SimpleCache` in the app.
      */
     val directory: File? = null,
+
+    /**
+     * How long an HLS playlist may be served from disk instead of the network. 0 turns playlist
+     * storage off, so every start fetches its playlists from the network.
+     *
+     * With segments already on disk, the playlist round trips are most of a warm start. Only
+     * playlists that cannot go stale are stored — multivariant playlists and finished VOD media
+     * playlists, never a live media playlist — and each is served only until the earliest signed
+     * `expires=` among its URLs (less a 10-minute margin), and at most this long. Content that is
+     * re-encoded in place can take up to this long to be picked up on a device that cached it.
+     *
+     * Has no effect when the deprecated [cachePlaylists] is on, which caches every playlist.
+     */
+    val maxPlaylistAgeMs: Long = DEFAULT_MAX_PLAYLIST_AGE_MS,
 ) {
     init {
         require(maxBytes > 0L) { "maxBytes must be > 0, was $maxBytes" }
+        require(maxPlaylistAgeMs >= 0L) { "maxPlaylistAgeMs must be >= 0, was $maxPlaylistAgeMs" }
     }
 
     companion object {
         /** Default ceiling: 256 MB. */
         const val DEFAULT_MAX_BYTES: Long = 256L * 1024L * 1024L
+
+        /** Default for [maxPlaylistAgeMs]: 24 hours. */
+        const val DEFAULT_MAX_PLAYLIST_AGE_MS: Long = 24L * 60L * 60L * 1000L
 
         /** Default folder name under `context.cacheDir`. */
         const val DEFAULT_DIRECTORY_NAME: String = "fastpix-media-cache"

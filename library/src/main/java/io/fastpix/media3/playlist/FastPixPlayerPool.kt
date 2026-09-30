@@ -185,7 +185,6 @@ class FastPixPlayerPool private constructor(
         preloadManager = preloadBuilder.build(),
         policy = policy,
         diskWarmer = cache?.let { openCache ->
-            @Suppress("DEPRECATION")
             val warmer = io.fastpix.media3.cache.FastPixPreCacher.forPlayer(
                 appContext,
                 openCache,

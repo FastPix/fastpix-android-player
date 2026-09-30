@@ -225,14 +225,7 @@ class NetworkAwareAbrController(
         }
     }
 
-    private fun bitrateCapFor(type: NetworkType): Int = when (type) {
-        NetworkType.WIFI -> config.wifiMaxBitrateBps
-        NetworkType.CELLULAR_5G_4G -> config.cellular5g4gMaxBitrateBps
-        NetworkType.CELLULAR_3G -> config.cellular3gMaxBitrateBps
-        NetworkType.CELLULAR_2G -> config.cellular2gMaxBitrateBps
-        NetworkType.OFFLINE -> config.cellular2gMaxBitrateBps
-        NetworkType.UNKNOWN -> config.unknownNetworkMaxBitrateBps
-    }
+    private fun bitrateCapFor(type: NetworkType): Int = config.maxBitrateFor(type)
 
     /**
      * Writes the cap to the track selector. Clears any prior manual overrides of type video so

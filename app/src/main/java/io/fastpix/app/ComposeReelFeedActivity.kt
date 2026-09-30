@@ -107,7 +107,7 @@ class ComposeReelFeedActivity : ComponentActivity() {
         get() = this == PlayerMode.SHARED || this == PlayerMode.SHARED_NAIVE ||
                 this == PlayerMode.SHARED_WORKAROUND
 
-    enum class CacheMode { OFF, ENABLED, ON_DEMAND_FEED }
+    enum class CacheMode { OFF, ENABLED }
     enum class Host { COMPOSE_PAGER, VIEWPAGER2 }
 
     private lateinit var host: Host
@@ -148,9 +148,10 @@ class ComposeReelFeedActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         host = Host.valueOf(intent.getStringExtra(EXTRA_HOST) ?: Host.COMPOSE_PAGER.name)
         mode = PlayerMode.valueOf(intent.getStringExtra(EXTRA_MODE) ?: PlayerMode.SHARED.name)
-        cacheMode = CacheMode.valueOf(
-            intent.getStringExtra(EXTRA_CACHE) ?: CacheMode.ON_DEMAND_FEED.name
-        )
+        // ON_DEMAND_FEED (CacheConfig.forOnDemandFeed) is gone: enabled() now stores playlists
+        // safely by itself. Older scripts that still pass it get ENABLED.
+        cacheMode = CacheMode.entries.firstOrNull { it.name == intent.getStringExtra(EXTRA_CACHE) }
+            ?: CacheMode.ENABLED
         preCacheOn = intent.getBooleanExtra(EXTRA_PRECACHE, true)
         capMatched = intent.getBooleanExtra(EXTRA_CAP_MATCHED, true)
 
@@ -163,10 +164,9 @@ class ComposeReelFeedActivity : ComponentActivity() {
         cacheConfig = when (cacheMode) {
             CacheMode.OFF -> CacheConfig.DISABLED
             CacheMode.ENABLED -> CacheConfig.enabled()
-            CacheMode.ON_DEMAND_FEED -> CacheConfig.forOnDemandFeed()
         }
-        // Uncapped Wi-Fi with the pre-cacher's default target is what the README's main feed
-        // sample produces; "matched" pins both to the same ceiling.
+        // "cap matched" pins the players to CAP_BPS; "default" leaves ABR uncapped on Wi-Fi. The
+        // pre-cacher gets the same AbrConfig either way, so it warms the rendition they start on.
         abrConfig = if (capMatched) {
             AbrConfig(wifiMaxBitrateBps = CAP_BPS, cellular5g4gMaxBitrateBps = CAP_BPS)
         } else {
@@ -176,7 +176,8 @@ class ComposeReelFeedActivity : ComponentActivity() {
             preCacher = FastPixPreCacher.create(
                 this,
                 cacheConfig,
-                if (capMatched) PreCacheConfig(targetBitrateBps = CAP_BPS) else PreCacheConfig.DEFAULT,
+                PreCacheConfig.DEFAULT,
+                abrConfig,
             )
         }
         if (mode.isShared) sharedPlayer = buildPlayer()
@@ -637,7 +638,7 @@ class ComposeReelFeedActivity : ComponentActivity() {
         fun newIntent(
             context: Context,
             mode: PlayerMode = PlayerMode.SHARED,
-            cache: CacheMode = CacheMode.ON_DEMAND_FEED,
+            cache: CacheMode = CacheMode.ENABLED,
             preCache: Boolean = true,
             capMatched: Boolean = true,
             clearCache: Boolean = false,

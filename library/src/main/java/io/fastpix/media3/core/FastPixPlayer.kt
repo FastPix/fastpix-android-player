@@ -1087,7 +1087,6 @@ class FastPixPlayer private constructor(
      */
     private val playlistPreloader: PlaylistPreloader? = preloadSetup?.let { setup ->
         val diskWarmer = setup.cache?.let { cache ->
-            @Suppress("DEPRECATION")
             val warmer = io.fastpix.media3.cache.FastPixPreCacher.forPlayer(context, cache, setup.cacheConfig) {
                 preloadTargetBitrate()
             }

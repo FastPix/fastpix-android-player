@@ -131,9 +131,19 @@ object MediaCacheProvider {
     ): DataSource.Factory {
         val cacheFactory = cacheDataSourceFactory(context, cache, config, itemKey)
         if (config.cachePlaylists) return cacheFactory
+        val playlistStore = if (config.maxPlaylistAgeMs > 0) {
+            PlaylistStore(
+                cache,
+                FastPixCacheKeyFactory(config.cacheKeyIgnoredQueryParameters, itemKey),
+                config.maxPlaylistAgeMs,
+            )
+        } else {
+            null
+        }
         return PlaylistAwareDataSourceFactory(
             cacheFactory = cacheFactory,
             upstreamFactory = DefaultDataSource.Factory(context.applicationContext),
+            playlistStore = playlistStore,
         )
     }
 

@@ -61,7 +61,7 @@ Add the following to your `build.gradle.kts` (or `build.gradle`):
 
 ```kotlin
 dependencies {
-    implementation("io.fastpix.player:android:2.2.0")
+    implementation("io.fastpix.player:android:2.2.1")
 }
 ```
 
@@ -69,7 +69,7 @@ Or if using version catalogs, add to `libs.versions.toml`:
 
 ```toml
 [versions]
-fastpix-player = "2.2.0"
+fastpix-player = "2.2.1"
 
 [libraries]
 fastpix-player = { module = "io.fastpix.player:android", version.ref = "fastpix-player" }
@@ -294,6 +294,7 @@ setting: say *how much*, and the SDK works out the rest.
 | Fast start | `BufferConfig` (on by default) | Waiting for a deep buffer before starting |
 | Preloading | `PreloadConfig(count, behind)` | The network round trips for upcoming entries |
 | Disk cache | `CacheConfig.enabled()` | Re-downloading anything watched or preloaded before |
+| Pre-caching | `FastPixPreCacher` | The network round trips for items opened later, e.g. from a list |
 | Pre-rendering | `PrerenderConfig(count, behind)` | The black frame while the next video's decoder starts |
 
 ### 1. Fast start (on by default)
@@ -349,6 +350,17 @@ are re-signed on every playlist fetch, so the SDK keys segments by playback ID a
 than by URL, and they hit across sessions and token refreshes. Query parameters that only authorise
 a request (`token`, `signature`, `expires`, `cdn`) are ignored for other URLs.
 
+Since 2.2.1 the cache also keeps **HLS playlists** while they are safe to reuse, so a cached item
+starts with no network round trip at all. Only multivariant playlists and finished VOD media
+playlists are stored (never a live media playlist). Each is served until the earliest signed
+`expires=` in it, less 10 minutes, and for at most `maxPlaylistAgeMs` (24 hours by default). A
+stream's playlist is keyed by playback ID, so a copy stored under `stream.fastpix.io` also serves
+`stream.fastpix.com` or a custom domain. To fetch playlists on every start as before:
+
+```kotlin
+CacheConfig(enabled = true, maxPlaylistAgeMs = 0)
+```
+
 The cache is **process-wide**: every player shares one store, and the first config to open it fixes
 the location and size. Inspect or reset it with `MediaCacheProvider.cachedBytes()` and
 `MediaCacheProvider.clear()`. Opening it reads its index from disk, so open it once at startup off
@@ -360,6 +372,46 @@ Executors.newSingleThreadExecutor().execute {
     MediaCacheProvider.getOrCreate(this, CacheConfig.enabled())
 }
 ```
+
+#### Pre-caching items before a player exists
+
+`FastPixPreCacher` warms items into the same cache with no player involved: the rows of a list
+before one is opened, or a feed's first items at app start. It stores the playlists, the first
+segments of the rendition a new player will start on, and the matching audio. The player you build
+later, with the same `CacheConfig`, then starts from disk.
+
+```kotlin
+// e.g. in the list screen or a ViewModel; one instance is enough
+val preCacher = FastPixPreCacher.create(context, CacheConfig.enabled())
+
+preCacher?.setListener(object : PreCacheListener {
+    override fun onPreCached(url: String, bytesWritten: Long) { /* optional */ }
+    override fun onPreCacheFailed(url: String, error: Throwable) { /* optional */ }
+})
+preCacher?.preCache(visibleItems.map { it.streamUrl })   // cancels warms for URLs not in the list
+
+// when the screen goes away
+preCacher?.release()
+```
+
+```kotlin
+// the player screen: same CacheConfig, nothing else to do
+FastPixPlayer.Builder(context)
+    .setCacheConfig(CacheConfig.enabled())
+    .build()
+```
+
+- **Pass the same `CacheConfig`** to the pre-cacher and the player. The cache is process-wide, so the
+  first config to open it wins.
+- **Which rendition is warmed** follows the player: its starting bandwidth estimate, the network-type
+  caps from `AbrConfig` and the display size. Players built with a custom `AbrConfig` should pass it
+  too: `FastPixPreCacher.create(context, cacheConfig, abrConfig = myAbrConfig)`. Set
+  `PreCacheConfig(targetBitrateBps = ...)` only if the player is pinned to a known bitrate cap.
+- **How much** is warmed per item is `PreCacheConfig(segmentCount = 2, maxBytesPerItem = 2 MB)` by
+  default; `PreCacheConfig.LIGHT` warms one segment. Hand it the items the user is likely to open
+  next, not the whole catalogue.
+- For one player moving through a feed, prefer a playlist with `PreloadConfig`: it warms the same
+  way and also buffers the next entry in memory.
 
 ### 4. Pre-rendering
 
@@ -465,8 +517,7 @@ The 2.1.0 APIs keep working and are marked deprecated, with IDE quick-fixes to t
 |---|---|
 | `setMediaItems(items)` | `setPlaylist(items.map { PlaylistItem.fromMediaItem(it) })` |
 | `PreloadConfig(enabled = true)` / `PreloadConfig.FEED` | `PreloadConfig(count = 1)` |
-| `CacheConfig.forOnDemandFeed()` | `CacheConfig.enabled()` — playlist caching is no longer needed |
-| `FastPixPreCacher` + `PreCacheConfig` | `PreloadConfig(count = N)` with the cache on |
+| `CacheConfig.forOnDemandFeed()` | `CacheConfig.enabled()`, which stores playlists safely on its own |
 | Per-page players you build yourself | `FastPixPlayerPool`, which also pre-renders |
 | Black frame between items on one player | `setPrerenderConfig(PrerenderConfig(count = 1))` |
 

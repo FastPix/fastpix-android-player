@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.1]
+
+### Changed
+- **`FastPixPreCacher`, `PreCacheConfig` and `PreCacheListener` are no longer deprecated.** They are
+  the way to warm items with no player yet — a list's rows before one is opened, a feed's first
+  items at app start. A playlist with `PreloadConfig` remains the choice for one player moving
+  through a feed
+- **HLS playlists are kept on disk while safe to reuse**, so a warmed item starts with no network
+  round trip at all. Only multivariant playlists and finished VOD media playlists are stored — never
+  a live media playlist — each until the earliest signed `expires=` in it (less 10 minutes) and at
+  most `CacheConfig.maxPlaylistAgeMs` (new, default 24 h; `0` restores fetching every start)
+- `PreCacheConfig.targetBitrateBps` defaults to the new `PreCacheConfig.TARGET_BITRATE_AUTO`: the
+  pre-cacher warms the rendition a new player would start on (its initial bandwidth estimate,
+  `AbrConfig.bandwidthFraction`, the network-type cap and the display size). `FastPixPreCacher.create`
+  takes an optional `AbrConfig` for players built with custom caps
+
+### Fixed
+- `FastPixPreCacher` warmed segments playback never read: a fixed 1.2 Mbps target picked a lower
+  rendition than the player started on, and audio was warmed from the variant's own group although
+  Media3 plays the first rendition sharing its NAME across groups. Playlist preloading with the cache
+  on uses the same warmer, so it now also warms the audio the player plays and respects the display
+  size when choosing the video rendition
+- A stream's multivariant playlist is cached by asset, so one warmed under `stream.fastpix.io` hits for
+  a player loading `stream.fastpix.com` or a custom domain
+- The first-listed variant's playlist, which Media3 loads before choosing a rendition, is warmed too
+
 ## [2.2.0]
 
 ### Added

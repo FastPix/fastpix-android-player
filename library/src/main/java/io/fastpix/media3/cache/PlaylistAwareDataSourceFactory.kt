@@ -2,6 +2,7 @@ package io.fastpix.media3.cache
 
 import android.net.Uri
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.ByteArrayDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
@@ -15,6 +16,10 @@ import androidx.media3.datasource.TransferListener
  * cannot tell them apart, so the safe default is to always fetch playlists from the network and
  * cache only the segment bytes underneath them.
  *
+ * With a [PlaylistStore], playlists that are safe to reuse — multivariant and finished VOD media
+ * playlists, until their signed URLs near expiry — are served from disk instead; everything else
+ * still goes to the network. See [CacheConfig.maxPlaylistAgeMs].
+ *
  * Apps that play only on-demand content can opt back in with [CacheConfig.cachePlaylists], in
  * which case this wrapper is not used at all.
  */
@@ -22,10 +27,15 @@ import androidx.media3.datasource.TransferListener
 internal class PlaylistAwareDataSourceFactory(
     private val cacheFactory: DataSource.Factory,
     private val upstreamFactory: DataSource.Factory,
+    private val playlistStore: PlaylistStore? = null,
 ) : DataSource.Factory {
 
     override fun createDataSource(): DataSource =
-        PlaylistAwareDataSource(cacheFactory.createDataSource(), upstreamFactory.createDataSource())
+        PlaylistAwareDataSource(
+            cacheFactory.createDataSource(),
+            upstreamFactory.createDataSource(),
+            playlistStore,
+        )
 }
 
 /**
@@ -36,6 +46,7 @@ internal class PlaylistAwareDataSourceFactory(
 private class PlaylistAwareDataSource(
     private val cached: DataSource,
     private val uncached: DataSource,
+    private val playlistStore: PlaylistStore?,
 ) : DataSource {
 
     private var active: DataSource? = null
@@ -47,6 +58,13 @@ private class PlaylistAwareDataSource(
     }
 
     override fun open(dataSpec: DataSpec): Long {
+        if (isManifest(dataSpec.uri) && playlistStore != null) {
+            // Served whole from memory; the store decides between its disk copy and the network.
+            val bytes = playlistStore.load(dataSpec, uncached)
+            val source = ByteArrayDataSource(bytes)
+            active = source
+            return source.open(dataSpec)
+        }
         val delegate = if (isManifest(dataSpec.uri)) uncached else cached
         active = delegate
         return delegate.open(dataSpec)

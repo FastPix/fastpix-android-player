@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package io.fastpix.media3.cache
 
 /**
@@ -8,9 +6,6 @@ package io.fastpix.media3.cache
  * The defaults warm roughly the first two segments (a few seconds) of each item, which is enough
  * for the player to render a first frame from disk on arrival while the rest streams normally.
  */
-@Deprecated(
-    "Configures the deprecated FastPixPreCacher. Use PreloadConfig(count = N) with a playlist.",
-)
 data class PreCacheConfig(
     /**
      * Number of media segments warmed per item, starting from the first. Two is usually enough to
@@ -25,14 +20,19 @@ data class PreCacheConfig(
     val maxBytesPerItem: Long = 2L * 1024L * 1024L,
 
     /**
-     * Bitrate (bps) the warmed rendition is chosen against: the highest variant at or below this,
-     * falling back to the lowest variant on the ladder.
+     * Bitrate (bps) the warmed rendition is chosen against: the highest variant at or below this
+     * (among those that suit the display), falling back to the lowest variant on the ladder.
      *
-     * The warm only pays off if playback then picks the same rendition, so keep this in line with
-     * what ABR will realistically choose on the user's network — and consider pinning the ladder
-     * with `maxResolution` on the media item so the two cannot diverge.
+     * [TARGET_BITRATE_AUTO], the default, warms the rendition a new `FastPixPlayer` would start
+     * on: its initial bandwidth estimate for the current network, scaled by
+     * [io.fastpix.media3.abr.AbrConfig.bandwidthFraction] and capped by the network-type limits.
+     * The default used to be a fixed 1.2 Mbps, which on most connections warmed a lower
+     * rendition than the player then played, so nothing warmed was used.
+     *
+     * Pass an explicit value only when the player is pinned to a known cap (e.g. a feed with a
+     * fixed `maxVideoBitrate`); the warm only pays off if playback picks the same rendition.
      */
-    val targetBitrateBps: Int = 1_200_000,
+    val targetBitrateBps: Int = TARGET_BITRATE_AUTO,
 
     /**
      * Whether the audio rendition referenced by the chosen video variant is warmed as well.
@@ -61,7 +61,9 @@ data class PreCacheConfig(
     init {
         require(segmentCount > 0) { "segmentCount must be > 0, was $segmentCount" }
         require(maxBytesPerItem > 0L) { "maxBytesPerItem must be > 0, was $maxBytesPerItem" }
-        require(targetBitrateBps > 0) { "targetBitrateBps must be > 0, was $targetBitrateBps" }
+        require(targetBitrateBps > 0 || targetBitrateBps == TARGET_BITRATE_AUTO) {
+            "targetBitrateBps must be > 0 or TARGET_BITRATE_AUTO, was $targetBitrateBps"
+        }
         require(maxAudioBytesPerItem > 0L) {
             "maxAudioBytesPerItem must be > 0, was $maxAudioBytesPerItem"
         }
@@ -69,6 +71,9 @@ data class PreCacheConfig(
     }
 
     companion object {
+        /** [targetBitrateBps] value meaning "warm the rendition the player would start on". */
+        const val TARGET_BITRATE_AUTO: Int = 0
+
         /** Balanced default: two segments, 2 MB ceiling, two items at a time. */
         @JvmField
         val DEFAULT: PreCacheConfig = PreCacheConfig()
@@ -86,7 +91,6 @@ data class PreCacheConfig(
 }
 
 /** Optional observer for pre-cache activity; useful while tuning, not required in production. */
-@Deprecated("Observes the deprecated FastPixPreCacher.")
 interface PreCacheListener {
     /** A URL finished warming, having written [bytesWritten] bytes to the cache. */
     fun onPreCached(url: String, bytesWritten: Long) {}
