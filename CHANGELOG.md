@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.2]
+
+### Added
+- `FastPixPreCacher.preCacheItems(items)` warms entries built from a playback ID, e.g.
+  `PlaylistItem.fastPix(playbackId, playbackToken)`, so apps that hold playback IDs (and tokens for
+  private videos) rather than stream URLs can pre-cache directly; `isWarm(item)` checks one. The
+  token authorises the warm but is not part of the cache key, so a player given a refreshed token
+  for the same playback ID still starts from disk
+
+### Fixed
+- `setFastPixMediaItem { playbackId; playbackToken }` without a `drmConfig` (a private, non-DRM
+  stream) reported `onError` code 9010 "Token is empty" although the token was valid. It now builds
+  the same item as `PlaylistItem.fastPix`, and reports 9010 only for DRM requested without a token
+- Analytics reported the player version as 2.2.0 in 2.2.1 (`FastPixPlayerLibraryInfo.PLAYER_VERSION`)
+
+### Sample app
+- Video list: a **Playlist** switch plays the whole list with `setPlaylist`, `PreloadConfig(count = 2)`
+  and previous/next controls; the list is warmed by playback ID with `preCacheItems`
+- Player screen: a start-up overlay (time to ready and to first frame, quality played), also logged
+  under `MainActivityStartup`; `onError` is logged under `MainActivityPlayback`
+- Private and DRM test videos, each with its own token read from `local.properties`
+  (`fastpix.privateTestToken`, `fastpix.privateTestToken2`, `fastpix.drmTestToken`); only DRM rows
+  attach a Widevine `DrmConfig`, and playlist mode passes each entry its own token
+- Lint: `UnstableApi` opt-ins in `ComposePlayerScreen`; `rememberFastPixPlayer` drops its unused
+  `configure` parameter
+- `TestActivity` / `TestPreCacher`: a plain Media3 player and pre-cacher kept as a start-up baseline
+
 ## [2.2.1]
 
 ### Changed

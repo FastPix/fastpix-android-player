@@ -8,6 +8,7 @@ import android.os.Build
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -380,6 +381,7 @@ private fun formatPlaybackSpeedLabel(speed: Float): String {
     }
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 private fun PlayerSurface(
     player: FastPixPlayer,

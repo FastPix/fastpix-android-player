@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
@@ -17,6 +19,17 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Tokens for the sample's private/DRM test videos, from git-ignored local.properties;
+        // empty when absent, in which case those rows play without a token.
+        val localProperties = Properties().apply {
+            rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+        }
+        fun tokenField(name: String, key: String) =
+            buildConfigField("String", name, "\"${localProperties.getProperty(key, "")}\"")
+        tokenField("PRIVATE_TEST_TOKEN", "fastpix.privateTestToken")
+        tokenField("PRIVATE_TEST_TOKEN_2", "fastpix.privateTestToken2")
+        tokenField("DRM_TEST_TOKEN", "fastpix.drmTestToken")
     }
 
     buildTypes {
@@ -38,6 +51,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     dataBinding {

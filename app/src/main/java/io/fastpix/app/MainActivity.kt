@@ -147,6 +147,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onError(error: androidx.media3.common.PlaybackException) {
+            Log.e("MainActivityPlayback", "onError code=${error.errorCode} message=${error.message}")
             Toast.makeText(
                 this@MainActivity,
                 "Playback error: ${error.message}",
@@ -347,6 +348,7 @@ class MainActivity : AppCompatActivity() {
     private var defaultAudioName: String? = null
     private var defaultSubtitleName: String? = null
     private var token: String? = null
+    private var isDrm = false
 
     // Startup timing for the current item (all SystemClock.elapsedRealtime() millis).
     private var activityCreatedAt = 0L
@@ -391,6 +393,7 @@ class MainActivity : AppCompatActivity() {
         defaultAudioName = intent.getStringExtra(VideoListScreen.DEFAULT_AUDIO_NAME)
         defaultSubtitleName = intent.getStringExtra(VideoListScreen.DEFAULT_SUBTITLE_NAME)
         token = intent.getStringExtra(VideoListScreen.TOKEN)
+        isDrm = intent.getBooleanExtra(VideoListScreen.IS_DRM, false)
 
         // Lock to portrait initially when auto-rotate is off
         if (!isAutoRotateEnabled()) {
@@ -454,8 +457,12 @@ class MainActivity : AppCompatActivity() {
     private fun setupMediaItem() {
         startStartupTimer()
         playlistUrls?.let { urls ->
-            val items = urls.map { url ->
-                PlaylistItem.fastPix(Uri.parse(url).lastPathSegment.orEmpty().substringBefore(".m3u8"), token)
+            val tokens = intent.getStringArrayListExtra(VideoListScreen.PLAYLIST_TOKENS)
+            val items = urls.mapIndexed { i, url ->
+                PlaylistItem.fastPix(
+                    Uri.parse(url).lastPathSegment.orEmpty().substringBefore(".m3u8"),
+                    tokens?.getOrNull(i)?.ifEmpty { null },
+                )
             }
             fastPixPlayer.addPlaylistListener(playlistListener)
             fastPixPlayer.setPlaylist(items, playlistStartIndex.coerceIn(0, items.lastIndex))
@@ -471,7 +478,8 @@ class MainActivity : AppCompatActivity() {
                 this.playbackId = playbackId
                 this.streamType = StreamType.onDemand
                 this.playbackToken = token
-                if (token != null)
+                // A token alone means a private video; only DRM samples need a licence.
+                if (isDrm)
                     this.drmConfig = DrmConfig()
             }
         } else {

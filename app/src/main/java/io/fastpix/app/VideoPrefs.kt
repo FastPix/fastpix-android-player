@@ -110,8 +110,23 @@ val dummyData = listOf<DummyData>(
         "https://stream.fastpix.io/f19268f5-9719-403f-87c9-b604fb3bdce3.m3u8",
     ),
     DummyData(
-        "ca854fd4-a3d0-4525-bd43-80de50887e1a",
-        "https://stream.fastpix.io/ca854fd4-a3d0-4525-bd43-80de50887e1a.m3u8",
+        "Private Video (token)",
+        "https://stream.fastpix.com/743cfa02-fba6-4b27-9be7-d5273da50b06.m3u8",
+        // Set fastpix.privateTestToken in local.properties; never commit a real token.
+        token = BuildConfig.PRIVATE_TEST_TOKEN.ifEmpty { null },
+    ),
+    DummyData(
+        "Private Video 2 (token)",
+        "https://stream.fastpix.com/73b883e0-ad58-47a9-88e7-72429b2b4270.m3u8",
+        // Set fastpix.privateTestToken2 in local.properties; never commit a real token.
+        token = BuildConfig.PRIVATE_TEST_TOKEN_2.ifEmpty { null },
+    ),
+    DummyData(
+        // "DRM" in the id makes the player attach a Widevine DrmConfig.
+        "DRM Playback (token)",
+        "https://stream.fastpix.com/4124dc14-d992-4e47-8022-fb43778747f4.m3u8",
+        // Set fastpix.drmTestToken in local.properties; never commit a real token.
+        token = BuildConfig.DRM_TEST_TOKEN.ifEmpty { null },
     ),
 )
 
@@ -120,4 +135,6 @@ val dummyData = listOf<DummyData>(
 data class DummyData(
     var id: String,
     var url: String,
+    /** Playback token for a private video; null for public ones. */
+    var token: String? = null,
 ) : Parcelable

@@ -61,7 +61,7 @@ Add the following to your `build.gradle.kts` (or `build.gradle`):
 
 ```kotlin
 dependencies {
-    implementation("io.fastpix.player:android:2.2.1")
+    implementation("io.fastpix.player:android:2.2.2")
 }
 ```
 
@@ -69,7 +69,7 @@ Or if using version catalogs, add to `libs.versions.toml`:
 
 ```toml
 [versions]
-fastpix-player = "2.2.1"
+fastpix-player = "2.2.2"
 
 [libraries]
 fastpix-player = { module = "io.fastpix.player:android", version.ref = "fastpix-player" }
@@ -388,7 +388,14 @@ preCacher?.setListener(object : PreCacheListener {
     override fun onPreCached(url: String, bytesWritten: Long) { /* optional */ }
     override fun onPreCacheFailed(url: String, error: Throwable) { /* optional */ }
 })
-preCacher?.preCache(visibleItems.map { it.streamUrl })   // cancels warms for URLs not in the list
+// By playback ID; private videos pass their token. Cancels warms for items not in the list.
+preCacher?.preCacheItems(visibleItems.map { PlaylistItem.fastPix(it.playbackId, it.playbackToken) })
+
+// Or by stream URL, for URLs you already have
+preCacher?.preCache(visibleItems.map { it.streamUrl })
+
+// Whether an item has been warmed in this process (e.g. to show a "ready" badge)
+val ready = preCacher?.isWarm(PlaylistItem.fastPix(id, token)) == true
 
 // when the screen goes away
 preCacher?.release()
@@ -401,6 +408,9 @@ FastPixPlayer.Builder(context)
     .build()
 ```
 
+- **Tokens are not part of the cache key.** A private video warmed with one token still starts
+  from disk when the player is given a refreshed token for the same playback ID. Bytes stay
+  readable from disk until evicted, as described under `CacheConfig.cacheKeyIgnoredQueryParameters`.
 - **Pass the same `CacheConfig`** to the pre-cacher and the player. The cache is process-wide, so the
   first config to open it wins.
 - **Which rendition is warmed** follows the player: its starting bandwidth estimate, the network-type
@@ -1221,7 +1231,7 @@ playerView.setFastPixMediaItem {
     customDomain = "custom.stream.fastpix.com"
     
     // Stream type
-    streamType = "on-demand"  // or "live-stream"
+    streamType = StreamType.onDemand  // or StreamType.live
     
     // Secure playback
     playbackToken = "your-playback-token"
@@ -1698,13 +1708,47 @@ Notes:
 
 ---
 
+## Private Videos (Signed Playback)
+
+A private video needs only its playback token; it is not DRM, so do not set `drmConfig`:
+
+```kotlin
+player.setFastPixMediaItem {
+    playbackId = "your-playback-id"
+    playbackToken = "your-playback-token"   // a playback token: "aud": "media:<playbackId>"
+}
+
+// or as a playlist entry
+PlaylistItem.fastPix("your-playback-id", playbackToken = "your-playback-token")
+```
+
+Tokens are reusable until they expire (the JWT's `exp` claim), so fetch them **before** playback and
+keep them:
+
+- Fetch a video's token as soon as you know it may be played (the course or feed loads, a card is
+  tapped), not when the user presses play: until the token arrives the player cannot start, cache
+  or no cache.
+- Reuse a cached token until shortly before `exp`; fetch a new one only when it is about to expire
+  or the server rejects it (HTTP 401/403).
+- Pre-cache private videos with the same playback ID and token:
+  `preCacher.preCacheItems(listOf(PlaylistItem.fastPix(id, token)))`. The token is not part of the
+  cache key, so a refreshed token for the same playback ID still starts from disk.
+
+Before 2.2.2, `setFastPixMediaItem` with a token but no `drmConfig` reported a false `onError`
+(code 9010, "Token is empty") even though the video played.
+
 ## DRM (Widevine) Playback
 
-For protected FastPix streams, provide both:
-- `playbackToken` (required for secure playback)
-- `drmConfig` (enables DRM configuration on the media item)
+For DRM-protected FastPix streams, provide both:
+- `playbackToken`, a DRM token for the video (`"aud": "drm:<playbackId>"`); the same token authorises
+  the stream and the licence request
+- `drmConfig`, which adds the Widevine configuration to the media item
 
-If `playbackToken` is set but `drmConfig` is not provided, playback emits a DRM configuration error through `PlaybackListener.onError`.
+If `drmConfig` is set without a `playbackToken`, playback reports an error (code 9010) through
+`PlaybackListener.onError`, since the licence cannot be requested.
+
+Pre-caching covers a DRM video's playlists and segments, but the Widevine licence is still requested
+on every play, so a warmed DRM video starts a few hundred milliseconds later than a clear one.
 
 ### Basic DRM setup
 

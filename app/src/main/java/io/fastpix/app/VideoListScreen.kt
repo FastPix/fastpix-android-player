@@ -14,6 +14,7 @@ import io.fastpix.media3.cache.CacheConfig
 import io.fastpix.media3.cache.FastPixPreCacher
 import io.fastpix.media3.cache.PreCacheConfig
 import io.fastpix.media3.cache.PreCacheListener
+import io.fastpix.media3.playlist.PlaylistItem
 import java.util.UUID
 import kotlin.jvm.java
 
@@ -41,13 +42,11 @@ class VideoListScreen : AppCompatActivity() {
 
         // Warm the start of every video so TestActivity can begin playback from disk.
         if (PRECACHE_ENABLED) {
-            TestPreCacher.preCache(this, dummyData.map { it.url })
+           // TestPreCacher.preCache(this, dummyData.map { it.url })
            // No targetBitrateBps: warm the rendition the player will start on for this network.
            val preCacher =  FastPixPreCacher.create(this, CacheConfig.enabled(),
                PreCacheConfig(enableLogging = true)
            )
-            preCacher?.preCache(dummyData.map { it.url })
-
             preCacher?.setListener(object : PreCacheListener {
                 override fun onPreCacheFailed(url: String, error: Throwable) {
                     super.onPreCacheFailed(url, error)
@@ -59,6 +58,17 @@ class VideoListScreen : AppCompatActivity() {
                     Log.e("TAG", "onPreCached: $url ", )
                 }
             })
+
+            // Warm by playback ID, as an app integrating the SDK would; private videos pass their
+            // token too. MainActivity plays the same IDs with setFastPixMediaItem.
+            preCacher?.preCacheItems(
+                dummyData.map { video ->
+                    PlaylistItem.fastPix(
+                        playbackId = video.url.substringAfterLast('/').substringBefore(".m3u8"),
+                        playbackToken = tokenFor(video),
+                    )
+                }
+            )
         }
 
         videoAdapter.onVideoClick = { video ->
@@ -68,12 +78,13 @@ class VideoListScreen : AppCompatActivity() {
             intent.putExtra(LOOP, binding.sLoop.isChecked)
             intent.putExtra(DEFAULT_AUDIO_NAME, selectedDefaultAudio)
             intent.putExtra(DEFAULT_SUBTITLE_NAME, selectedDefaultSubtitle)
-            if (video?.id?.contains("DRM") == true) {
-                intent.putExtra(TOKEN, token)
-            }
+            video?.let { tokenFor(it) }?.let { intent.putExtra(TOKEN, it) }
+            intent.putExtra(IS_DRM, video?.id?.contains("DRM") == true)
             if (binding.sPlaylist.isChecked) {
                 // Play the whole list as one playlist, starting at the tapped row.
                 intent.putStringArrayListExtra(PLAYLIST_URLS, ArrayList(dummyData.map { it.url }))
+                // Empty string = no token, so the list stays parallel to PLAYLIST_URLS.
+                intent.putStringArrayListExtra(PLAYLIST_TOKENS, ArrayList(dummyData.map { tokenFor(it).orEmpty() }))
                 intent.putExtra(PLAYLIST_START_INDEX, dummyData.indexOf(video).coerceAtLeast(0))
             }
             startActivity(intent)
@@ -102,6 +113,10 @@ class VideoListScreen : AppCompatActivity() {
             startActivity(intent)
         }
     }
+
+    /** A private video's own token, or the placeholder DRM token for the DRM samples. */
+    private fun tokenFor(video: DummyData): String? =
+        video.token ?: token.takeIf { video.id.contains("DRM") }
 
     private fun setupDefaultLanguageDropdowns() {
         val audioOptions = listOf(
@@ -151,6 +166,8 @@ class VideoListScreen : AppCompatActivity() {
         const val DEFAULT_SUBTITLE_NAME = "default_subtitle_name"
         const val TOKEN = "token"
         const val PLAYLIST_URLS = "playlist_urls"
+        const val PLAYLIST_TOKENS = "playlist_tokens"
+        const val IS_DRM = "is_drm"
         const val PLAYLIST_START_INDEX = "playlist_start_index"
 
         /** Flip to false (and clear app cache) to measure cold, network-only starts in TestActivity. */

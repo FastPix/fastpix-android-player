@@ -9,7 +9,6 @@ import android.os.Looper
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.Tracks
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
@@ -36,7 +35,6 @@ import io.fastpix.media3.analytics.AnalyticsSessions
 import io.fastpix.data.domain.model.VideoDataDetails
 import io.fastpix.media3.buffer.BufferConfig
 import io.fastpix.media3.cache.CacheConfig
-import io.fastpix.media3.cache.FastPixItemKeys
 import io.fastpix.media3.cache.ItemScopedMediaSourceFactory
 import io.fastpix.media3.cache.MediaCacheProvider
 import io.fastpix.media3.preload.PlaylistPreloader
@@ -739,39 +737,20 @@ class FastPixPlayer private constructor(
             )
         }
 
-        // Create playback URL
-        val playbackUrl = FastPixMediaItems.playbackUrl(config)
-
-        val mediaItemBuilder = MediaItem.Builder().setUri(
-            playbackUrl
-        ).setMimeType(MimeTypes.APPLICATION_M3U8)
-            // Lets the cache key this asset's segments by playback ID, custom domain or not.
-            .setTag(FastPixItemKeys.FastPixItemTag(config.playbackId))
-        if(config.playbackToken != null) {
-            val drmConfig = config.drmConfig
-            if (drmConfig == null) {
-                notifyPlayerError(
-                    PlaybackException(
-                        "Token is empty",
-                        IllegalArgumentException(),
-                        ERROR_CODE_DRM_LICENSE_URL_EMPTY
-                    )
+        // A token on its own is a private (signed) stream; only DRM also needs a licence, and the
+        // licence request is authorised by that same token.
+        if (config.drmConfig != null && config.playbackToken.isNullOrBlank()) {
+            notifyPlayerError(
+                PlaybackException(
+                    "DRM playback needs a playback token",
+                    IllegalArgumentException(),
+                    ERROR_CODE_DRM_LICENSE_URL_EMPTY
                 )
-            }
-            val drmConfiguration =
-                DrmManager.buildMediaItemDrmConfiguration(
-                    drmConfig,
-                    config.playbackId,
-                    config.playbackToken,
-                    config.streamType
-                )
-            if (drmConfiguration != null) {
-                mediaItemBuilder.setDrmConfiguration(drmConfiguration)
-            }
+            )
         }
 
-        // Create and set the media item
-        val mediaItem = mediaItemBuilder.build()
+        // Same item PlaylistItem.fastPix builds: URL, HLS mime type, asset cache tag, DRM if any.
+        val mediaItem = FastPixMediaItems.build(config)
         try {
             setMediaItem(mediaItem)
         } catch (exception: Exception) {

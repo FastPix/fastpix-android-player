@@ -162,15 +162,11 @@ fun CommonVideoPlayer(
  */
 @UnstableApi
 @Composable
-fun rememberFastPixPlayer(
-    item: PlaylistItem,
-    configure: FastPixPlayer.Builder.() -> Unit = {},
-): FastPixPlayer {
+fun rememberFastPixPlayer(item: PlaylistItem): FastPixPlayer {
     val context = LocalContext.current
     val player = remember(item) {
         FastPixPlayer.Builder(context)
             .setAutoplay(true)
-            .apply(configure)
             .build()
             .apply { setPlaylist(listOf(item)) }
     }

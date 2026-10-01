@@ -22,6 +22,7 @@ import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParser
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import io.fastpix.media3.abr.AbrConfig
 import io.fastpix.media3.abr.NetworkMonitor
+import io.fastpix.media3.playlist.PlaylistItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -63,8 +64,9 @@ import kotlin.coroutines.coroutineContext
  * val cacheConfig = CacheConfig.enabled()
  * val preCacher = FastPixPreCacher.create(context, cacheConfig)
  *
- * // whenever the visible page changes, hand it the next few URLs
- * preCacher?.preCache(urlsForPositions(current + 1, current + 3))
+ * // whenever the visible page changes, hand it the next few items (playback ID, plus the token
+ * // for private videos), or plain stream URLs with preCache(urls)
+ * preCacher?.preCacheItems(itemsForPositions(current + 1, current + 3))
  * ```
  *
  * Warming is best-effort: every failure is swallowed (and reported to [PreCacheListener]) because a
@@ -161,6 +163,21 @@ class FastPixPreCacher private constructor(
         warm(urls.map { it to FastPixItemKeys.fromStreamUrl(it) })
     }
 
+    /**
+     * [preCache] for entries built from a playback ID — the usual integration, and the only one
+     * for private videos, whose token travels with the entry:
+     *
+     * ```kotlin
+     * preCacher?.preCacheItems(videos.map { PlaylistItem.fastPix(it.playbackId, it.playbackToken) })
+     * ```
+     *
+     * The token authorises the warm's requests but is not part of the cache key, so a player
+     * built later with a refreshed token for the same playback ID still starts from disk.
+     */
+    fun preCacheItems(items: List<PlaylistItem>) {
+        preCacheMediaItems(items.map { it.mediaItem })
+    }
+
     /** [preCache] for media items already built — items with no URI are skipped. */
     fun preCacheMediaItems(mediaItems: List<MediaItem>) {
         warm(
@@ -197,6 +214,10 @@ class FastPixPreCacher private constructor(
 
     /** Whether [url] has been warmed by this instance since the process started. */
     fun isWarm(url: String): Boolean = synchronized(warmed) { warmed[url] != null }
+
+    /** Whether [item] (see [preCacheItems]) has been warmed by this instance since the process started. */
+    fun isWarm(item: PlaylistItem): Boolean =
+        item.mediaItem.localConfiguration?.uri?.toString()?.let(::isWarm) ?: false
 
     /**
      * Cancels everything and stops accepting new work. The cache itself is process-wide and
