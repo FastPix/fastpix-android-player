@@ -562,6 +562,9 @@ Complete, copy-ready setups for the common ways to show more than one video. The
 | `RecyclerView` with `PagerSnapHelper` | `FastPixPlayerPool` | [E](#e-recyclerview-with-pagersnaphelper) |
 | A single video on its own screen | `FastPixPlayer` | [F](#f-a-single-video-anywhere) |
 
+For complete screens built from these recipes, see the [demo apps](#demo-apps): an endless
+Instagram-style reel feed, and a shopping home screen with series and a reel grid.
+
 Every recipe builds its items the same way:
 
 ```kotlin
@@ -2077,3 +2080,63 @@ See the `app` module for a complete example implementation demonstrating:
 - Seek bar integration
 - Fullscreen mode
 - Configuration change handling
+
+### Demo apps
+
+Two complete, Compose-based demos show the SDK's fast-start features working together in screens
+shaped like real apps. Open them from **Demo: Infinite reels** and **Demo: Shop reels + series** on
+the sample's home screen. Their code is in
+[`app/src/main/java/io/fastpix/app/demo`](app/src/main/java/io/fastpix/app/demo).
+
+#### Infinite reels (Instagram-style)
+
+A full-screen vertical feed that never ends: one video per page, with the next page of reels
+fetched as the user nears the end. Each reel has an Instagram-style overlay: profile picture, name,
+Follow, an expandable caption and an audio line, plus like, comment, share and more on the right.
+
+| What makes it fast | How |
+|---|---|
+| Swipes land on video, not black | `FastPixPlayerPool` with `PrerenderConfig(count = 1, behind = 1)` |
+| The next reels are already buffered | `PreloadConfig(count = 3, behind = 1)` |
+| Swiping back or re-watching plays from disk | `CacheConfig.enabled()` |
+| Start on 250 ms of media, don't buffer far ahead | `BufferConfig.FEED` |
+| Each page starts at the quality the last one learned | One `AbrConfig` and bandwidth estimate across the pool |
+| No decoder set-up on every swipe | The pool's few players, recycled between pages |
+| Endless feed | `pool.addToPlaylist(...)` as each new page of reels arrives |
+| One analytics view per reel watched | `setAnalyticsConfig(...)` on the pool; pre-rendered pages never count |
+
+The app code only binds `pool.playerAt(page)` to each page and calls `pool.setCurrentIndex(page)`
+when the pager settles. See
+[`ReelsActivity`](app/src/main/java/io/fastpix/app/demo/ReelsActivity.kt) and
+[`ReelOverlay`](app/src/main/java/io/fastpix/app/demo/ReelOverlay.kt).
+
+#### Shop reels + series (Flipkart-style)
+
+A shopping home screen: a row of series across the top and a grid of shoppable reels below it that
+keeps loading as the user scrolls.
+
+- **Tap a reel in the grid**: the reel feed above opens on that reel, and the user can swipe on
+  through the whole endless feed.
+- **Tap a series**: the episode plays on top with every episode listed below it. Episodes play on
+  in order, and tapping one jumps to it. This is one `FastPixPlayer` holding the series as a
+  playlist (`setPlaylist`), with `PrerenderConfig(count = 1)` so moving to the next episode shows
+  its first frame at once, and `PreloadConfig(count = 2, behind = 1)`.
+- **Nothing plays on the home screen, but it makes the next screen fast**: `FastPixPreCacher`
+  warms the first seconds of the reels and series on screen once scrolling settles, so whatever the
+  user taps starts from disk. It warms with the players' own cache and ABR settings, so it fetches
+  the rendition they will start on, and it stops while another screen is open.
+
+See [`ShopHomeActivity`](app/src/main/java/io/fastpix/app/demo/ShopHomeActivity.kt) and
+[`EpisodePlayerActivity`](app/src/main/java/io/fastpix/app/demo/EpisodePlayerActivity.kt).
+
+#### Notes
+
+- Both demos build every item with `PlaylistItem.fastPix(playbackId)`, so the pre-cacher and the
+  players share one disk cache keyed by asset.
+- Analytics is off unless you set your FastPix Data workspace in `local.properties`:
+  `fastpix.analyticsWorkspace=your-workspace-id`.
+- The content is the sample's public test videos, repeated, served by an in-app stand-in for a
+  backend ([`DemoCatalog`](app/src/main/java/io/fastpix/app/demo/DemoCatalog.kt)). Captions, counts
+  and profile pictures (from `i.pravatar.cc`) are placeholder data. Likes and follows last only while
+  the screen is open, and comment, share and more are UI only.
+

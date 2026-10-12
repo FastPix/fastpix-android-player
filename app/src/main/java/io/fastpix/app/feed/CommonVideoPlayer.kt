@@ -44,7 +44,8 @@ import io.fastpix.media3.playlist.PlaylistItem
  *
  * Over the video it draws its own UI from the player's state: a spinner until the first frame and
  * while buffering, a play icon while paused, and a message on error. For a pre-rendered page the
- * first frame is already there, so no spinner ever shows.
+ * first frame is already there, so no spinner ever shows. Pass a [poster] (the video's thumbnail,
+ * say) to show instead of black until that first frame.
  */
 @UnstableApi
 @Composable
@@ -53,6 +54,7 @@ fun CommonVideoPlayer(
     modifier: Modifier = Modifier,
     resizeMode: ResizeMode = ResizeMode.ZOOM,
     tapToPause: Boolean = true,
+    poster: (@Composable () -> Unit)? = null,
 ) {
     var firstFrameShown by remember(player) { mutableStateOf(player.hasRenderedFirstFrame()) }
     var buffering by remember(player) { mutableStateOf(false) }
@@ -129,6 +131,8 @@ fun CommonVideoPlayer(
             },
             modifier = Modifier.fillMaxSize(),
         )
+
+        if (poster != null && !firstFrameShown && error == null) poster()
 
         when {
             error != null -> Text(
