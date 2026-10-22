@@ -13,11 +13,11 @@
         <activity
             android:name=".VideoListScreen"
             android:exported="true">
-            <intent-filter>
+            <!--<intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            </intent-filter>-->
         </activity>
         <activity
             android:name=".MainActivity"
@@ -30,7 +30,11 @@
             android:name=".ReelFeedActivity"
             android:configChanges="orientation|screenSize"
             android:exported="true"
-            android:screenOrientation="portrait"></activity>
+            android:screenOrientation="portrait">
+
+
+
+        </activity>
         <activity
             android:name=".EpisodeFeedActivity"
             android:configChanges="orientation|screenSize"
@@ -44,6 +48,33 @@
             android:name=".ComposeReelFeedActivity"
             android:configChanges="orientation|screenSize"
             android:exported="true"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".demo.ReelsActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize"
+            android:screenOrientation="portrait" >
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".demo.ShopHomeActivity"
+            android:exported="true"
+            android:screenOrientation="portrait" >
+
+           <!-- <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>-->
+        </activity>
+        <activity
+            android:name=".demo.EpisodePlayerActivity"
+            android:configChanges="orientation|screenSize"
             android:screenOrientation="portrait" />
         <activity
             android:name=".TestActivity"

@@ -19,12 +19,14 @@
             android:layout_height="wrap_content"
             android:layout_gravity="top"
             android:background="#99000000"
+            android:visibility="gone"
             android:fontFamily="monospace"
             android:padding="12dp"
             android:textColor="@android:color/white"
             android:textSize="12sp" />
 
         <LinearLayout
+            android:visibility="gone"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"

@@ -106,6 +106,22 @@
                 android:text="Episode Feed (queue + next-item preload)" />
 
             <Button
+                android:id="@+id/btn_demo_reels"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="16dp"
+                android:layout_marginBottom="8dp"
+                android:text="Demo: Infinite reels" />
+
+            <Button
+                android:id="@+id/btn_demo_shop"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="16dp"
+                android:layout_marginBottom="8dp"
+                android:text="Demo: Shop reels + series" />
+
+            <Button
                 android:id="@+id/btn_viewpager_feed"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
