@@ -11,7 +11,7 @@ It is a hosted-streaming player for video delivered by FastPix, built on top of 
 
 **Works with:** Android (minSdk 24) · Kotlin · AndroidX Media3 (ExoPlayer) · HLS (.m3u8) live and on-demand · FastPix playback IDs · Widevine DRM
 
-[Documentation](https://fastpix.com/docs/android-player) · [Create a free account](https://dashboard.fastpix.com/signup?utm_source=github&utm_medium=referral&utm_campaign=github_signup)
+[Documentation](https://fastpix.com/docs/android-player/install-fastpix-android-player) · [Create a free account](https://dashboard.fastpix.com/signup?utm_source=github&utm_medium=referral&utm_campaign=github_signup)
 
 ## Start here
 
