@@ -1,6 +1,50 @@
-# FastPix Android Player SDK
+# FastPix Android Video Player SDK - HLS streaming, reel feeds and Widevine DRM on Media3
 
-A clean, modern Android video player SDK built on top of [AndroidX Media3 (ExoPlayer)](https://developer.android.com/media/media3). FastPix Player SDK provides a simple, SDK-friendly API for video playback with built-in support for configuration change survival, playback event tracking, and fullscreen mode.
+[![Platform](https://img.shields.io/badge/platform-Android-0CB16D)](https://github.com/FastPix/fastpix-android-player)
+[![Built on Media3](https://img.shields.io/badge/built%20on-Media3%20(ExoPlayer)-0CB16D)](https://developer.android.com/media/media3)
+[![minSdk](https://img.shields.io/badge/minSdk-24-0CB16D)](https://github.com/FastPix/fastpix-android-player)
+[![Kotlin](https://img.shields.io/badge/Kotlin-1.8%2B-orange)](https://github.com/FastPix/fastpix-android-player)
+
+The **FastPix Android video player SDK** adds HLS (HTTP Live Streaming) video playback to Android apps, built on [AndroidX Media3 (ExoPlayer)](https://developer.android.com/media/media3). It is a feature-rich, commercial player SDK for streaming apps: Widevine DRM, adaptive-bitrate (ABR) quality switching, playlists, subtitle and audio tracks, fullscreen and configuration-change survival - and, its standout, **flash-free short-form video feeds**. Preloading, disk caching, pre-rendering and a player pool (`FastPixPlayerPool`) remove the black frame and the join latency when users swipe a reels feed, and FastPix playback (QoE) analytics plug straight in.
+
+It is a hosted-streaming player for video delivered by FastPix, built on top of Media3/ExoPlayer - not a replacement for ExoPlayer itself for basic playback. Reach for it when you build a reels / short-video feed or a streaming app, need DRM or live, and want flash-free scrolling and QoE analytics without hand-rolling player pools, preload managers and caching.
+
+**Works with:** Android (minSdk 24) · Kotlin · AndroidX Media3 (ExoPlayer) · HLS (.m3u8) live and on-demand · FastPix playback IDs · Widevine DRM
+
+[Documentation](https://fastpix.com/docs/android-player/install-fastpix-android-player) · [Create a free account](https://dashboard.fastpix.com/signup?utm_source=github&utm_medium=referral&utm_campaign=github_signup)
+
+## Start here
+
+New to the SDK? Work through these in order:
+
+1. [Before you start](#before-you-start) - create a workspace, a playback ID and a GitHub access token
+2. [Install the SDK](#installation)
+3. [Play your first video](#quick-start)
+4. [Play a playlist](#playlists)
+5. [Build a flash-free reel / feed](#recipes-playlists--feeds)
+6. [Fast start, preloading, caching and pre-rendering](#fast-start-preloading-caching--pre-rendering)
+7. [Add QoE analytics](#analytics-fastpix-data-core-sdk)
+8. [Control video quality (ABR)](#video-quality-switching)
+9. [Switch subtitle and audio tracks](#subtitle-and-audio-track-switching)
+10. [Play Widevine DRM-protected media](#drm-widevine-playback)
+11. [Seek preview thumbnails](#seek-preview-spritesheet-thumbnails)
+12. [See the demo apps](#demo-apps)
+13. [FAQ](#faq)
+
+## Why FastPix
+
+- **Flash-free feeds out of the box.** `FastPixPlayerPool`, pre-rendering, preloading and disk caching solve the reels/short-video problem - no black frame on swipe, no join latency, one shared pool of decoders - so you do not hand-roll a preload manager or player pool.
+- **Built on Media3 (ExoPlayer).** Google's playback engine under a thin, familiar API; you can still reach the underlying `ExoPlayer` when you need to.
+- **DRM and secure playback.** Widevine DRM and token-based secure playback for protected FastPix streams.
+- **Analytics built in.** The FastPix Data SDK reports startup time, rebuffering, bitrate and errors to the dashboard, counting one view per video actually watched (preloaded and pre-rendered entries never inflate it).
+
+## Who it's for
+
+- **Short-form and social feeds (the standout):** flash-free vertical reels/shorts with `FastPixPlayerPool`, pre-rendering and preloading - the Instagram-style and shoppable-reels demos ship in the repo.
+- **OTT and streaming apps:** HLS with Widevine DRM, ABR quality control, playlists and QoE analytics.
+- **Online learning and courses:** playlists and episodes with preloading and flash-free next-episode transitions.
+- **Shopping and shoppable video:** a shop home screen of series and a reel grid, warmed with `FastPixPreCacher` so taps start from disk.
+- **Live events and sports:** live HLS playback with fast start and caching.
 
 ---
 
@@ -27,9 +71,21 @@ A clean, modern Android video player SDK built on top of [AndroidX Media3 (ExoPl
 - **Playlists** – `setPlaylist` with `next`, `previous`, `skipTo`, editing and `PlaylistListener` callbacks
 - **Preloading** – Prepare the next N playlist entries (and optionally previous ones) with `PreloadConfig(count = N)`
 - **Disk Caching** – Opt-in cache so re-watches, scroll-backs and preloaded entries play from local storage
-- **Pre-rendering** – `PrerenderConfig` prepares upcoming entries up to their first frame — on a single player or across the pages of a feed with `FastPixPlayerPool` — so moving between videos never shows a black screen
+- **Pre-rendering** – `PrerenderConfig` prepares upcoming entries up to their first frame - on a single player or across the pages of a feed with `FastPixPlayerPool` - so moving between videos never shows a black screen
 
 ---
+
+## Before you start
+
+You need a FastPix account and a playback ID before the player has anything to play, plus a GitHub access token to download the SDK from GitHub Packages.
+
+- **Create a free account** and sign in to the [FastPix Dashboard](https://dashboard.fastpix.com/signup?utm_source=github&utm_medium=referral&utm_campaign=github_signup).
+- **Set up a workspace** and generate your API credentials - see [set up a workspace](https://fastpix.com/docs/getting-started/set-up-a-workspace) and [generate API credentials](https://fastpix.com/docs/getting-started/activate-your-account#generate-api-credentials).
+- **Create media** with a pull or push upload, in the dashboard or the API - see [upload from a device](https://fastpix.com/docs/upload-videos/upload-videos-from-device) or [upload from a URL](https://fastpix.com/docs/upload-videos/upload-videos-from-a-url).
+- **Get the playback ID** from the media's details once its status is "ready".
+- **Create a GitHub Personal Access Token** with the `read:packages` scope - the [Installation](#installation) step below uses it to download the SDK from GitHub Packages.
+
+For private or DRM-protected media you also generate a playback token - see [Private Videos](#private-videos-signed-playback) and [DRM (Widevine) Playback](#drm-widevine-playback).
 
 ## Requirements
 
@@ -285,7 +341,7 @@ and now forwards to `setPlaylist`.
 ## Fast Start, Preloading, Caching & Pre-rendering
 
 Arriving at a cold item costs a TLS handshake, a multivariant playlist fetch, a media playlist
-fetch and the first segment — four round trips — and then a video decoder has to start before the
+fetch and the first segment - four round trips - and then a video decoder has to start before the
 first frame appears. Each feature below removes part of that. All are opt-in, and each is one
 setting: say *how much*, and the SDK works out the rest.
 
@@ -328,10 +384,10 @@ player.setPlaylist(items)
 ```
 
 - **Adjacent entries** have their first seconds buffered in memory, so they start almost at once.
-- **Entries further out** have their playlists fetched and tracks chosen — little memory, no
+- **Entries further out** have their playlists fetched and tracks chosen - little memory, no
   round trips left before their first segment.
 - **With the disk cache on**, entries further out also have their first segments written to disk,
-  in the rendition this player will pick — the SDK follows the player's own bitrate cap and
+  in the rendition this player will pick - the SDK follows the player's own bitrate cap and
   bandwidth estimate, so nothing is warmed that playback then refuses.
 
 ### 3. Disk cache
@@ -426,7 +482,7 @@ FastPixPlayer.Builder(context)
 ### 4. Pre-rendering
 
 Pre-rendering prepares an upcoming entry up to its **first frame**, so moving to it shows that frame
-immediately — the first frame is the loader, and there is no black screen while the video starts.
+immediately - the first frame is the loader, and there is no black screen while the video starts.
 There are two shapes, depending on your UI.
 
 **One `PlayerView` moving through a playlist** (next episode, a player with Next/Previous):
@@ -449,7 +505,7 @@ to the video the moment the video's own first frame is on screen. Background dec
 the entry you moved to is showing, so it never slows the transition down; turn the cache on too, so
 the background decode and playback share one download.
 
-**A page and a `PlayerView` per entry** (reel feeds, carousels) — `FastPixPlayerPool` supplies each
+**A page and a `PlayerView` per entry** (reel feeds, carousels) - `FastPixPlayerPool` supplies each
 page's player, and neighbouring pages are decoded up to their first frame and held paused; your
 pager and UI stay yours:
 
@@ -480,7 +536,7 @@ as the pre-render counts. The pool owns its players: don't release them yourself
 **Ask for a page's player whenever the page (re)appears; don't keep it.** The pool reuses players
 across pages as the user scrolls. A player an attached `PlayerView` is showing is never handed to
 another page, but a page RecyclerView kept in its cache (detached) may have lost its player by the
-time it comes back — ViewPager2 re-attaches cached pages without rebinding them. So compare and
+time it comes back - ViewPager2 re-attaches cached pages without rebinding them. So compare and
 rebind on attach:
 
 ```kotlin
@@ -498,18 +554,18 @@ stopped, and a reused player is given another entry; neither arrives as a `Playb
 If you draw your own spinner or play button, re-read `hasRenderedFirstFrame()` and `isPlaying()`
 when the engine changes state (`getExoPlayer().addListener`, `onPlaybackStateChanged` /
 `onMediaItemTransition`) rather than keeping flags from earlier callbacks. Listeners may add or
-remove listeners — themselves included — from inside any callback.
+remove listeners - themselves included - from inside any callback.
 
 The sample app's [`ViewPagerFeedActivity`](app/src/main/java/io/fastpix/app/feed/ViewPagerFeedActivity.kt)
 and [`CommonVideoPlayer`](app/src/main/java/io/fastpix/app/feed/CommonVideoPlayer.kt) do all of this:
 a ViewPager2 of `ComposeView` pages calling one shared player composable.
 
 **The counts are a maximum.** Each pre-rendered entry holds a video decoder, and devices run only a
-few at once — budget phones as few as two or three. Opening one too many fails *the next* player to
+few at once - budget phones as few as two or three. Opening one too many fails *the next* player to
 ask, which may be the one being watched. So the SDK tracks every open decoder across all FastPix
 players, keeps one in reserve, pre-renders only as many entries as fit, and never refuses the item
 playing. If the device refuses a decoder anyway, it lowers its limit for the rest of the process. A
-pre-render that fails is dropped silently — the page then loads normally when reached — and
+pre-render that fails is dropped silently - the page then loads normally when reached - and
 DRM-protected entries are never pre-rendered.
 
 Hide your own poster or placeholder at exactly the right moment with
@@ -561,6 +617,9 @@ Complete, copy-ready setups for the common ways to show more than one video. The
 | Compose `VerticalPager` / `HorizontalPager` | `FastPixPlayerPool` | [D](#d-compose-verticalpager--horizontalpager) |
 | `RecyclerView` with `PagerSnapHelper` | `FastPixPlayerPool` | [E](#e-recyclerview-with-pagersnaphelper) |
 | A single video on its own screen | `FastPixPlayer` | [F](#f-a-single-video-anywhere) |
+
+For complete screens built from these recipes, see the [demo apps](#demo-apps): an endless
+Instagram-style reel feed, and a shopping home screen with series and a reel grid.
 
 Every recipe builds its items the same way:
 
@@ -693,11 +752,11 @@ Inflating pages from XML instead? Give the `PlayerView` no `android:id`, or set
 `retainPlayerOnConfigChange = false` on it: every page inflates the same id, and ids are what
 configuration-change retention keys on.
 
-For a horizontal carousel, use `ViewPager2.ORIENTATION_HORIZONTAL` — nothing else changes.
+For a horizontal carousel, use `ViewPager2.ORIENTATION_HORIZONTAL` - nothing else changes.
 
 ### C. ViewPager2 with Compose pages
 
-The same feed where each page is a `ComposeView` calling your app's shared player composable —
+The same feed where each page is a `ComposeView` calling your app's shared player composable -
 the composable only *shows* the player it is given.
 
 ```kotlin
@@ -810,8 +869,8 @@ Compose disposes pages that leave the pager, so there is no re-attach case to ha
 
 ### E. RecyclerView with PagerSnapHelper
 
-The adapter from recipe B works unchanged. What ViewPager2 did for you — telling the pool which
-page is current — you do from the snap:
+The adapter from recipe B works unchanged. What ViewPager2 did for you - telling the pool which
+page is current - you do from the snap:
 
 ```kotlin
 // Lay out one screen beyond each edge, so the neighbouring pages are bound — and pre-rendered —
@@ -841,7 +900,7 @@ too late to pre-render it.
 
 ### F. A single video anywhere
 
-A detail screen, a preview, a banner — one player, owned by the screen:
+A detail screen, a preview, a banner - one player, owned by the screen:
 
 ```kotlin
 // Views
@@ -872,7 +931,7 @@ fun VideoDetail(item: PlaylistItem) {
   spinner or play button, re-read `hasRenderedFirstFrame()` / `isPlaying()` when the engine changes
   state (see [`CommonVideoPlayer`](app/src/main/java/io/fastpix/app/feed/CommonVideoPlayer.kt)).
   Hide a poster on `PlaybackListener.onFirstFrameRendered()`.
-- **Listeners may remove themselves inside a callback** — a one-shot listener is safe.
+- **Listeners may remove themselves inside a callback** - a one-shot listener is safe.
 - **Pre-render counts are a maximum.** The device's decoder limit decides how many actually
   pre-render; DRM entries never are.
 - **Analytics counts watched videos only.** Add `setAnalyticsConfig(AnalyticsConfig.Builder(workSpaceId).build())`
@@ -931,7 +990,7 @@ binding.playerView.player = fastPixPlayer
 
 Analytics reports a **view** for each video the user actually watches:
 
-- A view begins when a video starts playing for the user — set with `setMediaItem` /
+- A view begins when a video starts playing for the user - set with `setMediaItem` /
   `setFastPixMediaItem`, reached in a playlist (`setPlaylist`, `next()`, `previous()`, `skipTo()`,
   auto-advance), or made current in a `FastPixPlayerPool` (`setCurrentIndex`).
 - It ends when playback moves to another video, the playlist is cleared, or the player is released.
@@ -951,8 +1010,8 @@ player.setPlaylist(
 
 ### Analytics in a feed (`FastPixPlayerPool`)
 
-A pool's players move between pages, so build the config **without** a view — each page's view is
-measured through the `PlayerView` showing it — and give it to the pool:
+A pool's players move between pages, so build the config **without** a view - each page's view is
+measured through the `PlayerView` showing it - and give it to the pool:
 
 ```kotlin
 val pool = FastPixPlayerPool.Builder(context)
@@ -2003,7 +2062,7 @@ When disabled:
 - Playback will restart from the beginning
 
 Either way, a player you assign with `playerView.player = …` is yours: the view never releases it on
-detach. It only unbinds the video surface, and binds it again if the view is re-attached — so the
+detach. It only unbinds the video surface, and binds it again if the view is re-attached - so the
 same player can move between views, or survive a page being recycled in a pager or a Compose
 `AndroidView`. Release it yourself when you are done.
 
@@ -2077,3 +2136,105 @@ See the `app` module for a complete example implementation demonstrating:
 - Seek bar integration
 - Fullscreen mode
 - Configuration change handling
+
+### Demo apps
+
+Two complete, Compose-based demos show the SDK's fast-start features working together in screens
+shaped like real apps. Open them from **Demo: Infinite reels** and **Demo: Shop reels + series** on
+the sample's home screen. Their code is in
+[`app/src/main/java/io/fastpix/app/demo`](app/src/main/java/io/fastpix/app/demo).
+
+#### Infinite reels (Instagram-style)
+
+A full-screen vertical feed that never ends: one video per page, with the next page of reels
+fetched as the user nears the end. Each reel has an Instagram-style overlay: profile picture, name,
+Follow, an expandable caption and an audio line, plus like, comment, share and more on the right.
+
+| What makes it fast | How |
+|---|---|
+| Swipes land on video, not black | `FastPixPlayerPool` with `PrerenderConfig(count = 1, behind = 1)` |
+| The next reels are already buffered | `PreloadConfig(count = 3, behind = 1)` |
+| Swiping back or re-watching plays from disk | `CacheConfig.enabled()` |
+| Start on 250 ms of media, don't buffer far ahead | `BufferConfig.FEED` |
+| Each page starts at the quality the last one learned | One `AbrConfig` and bandwidth estimate across the pool |
+| No decoder set-up on every swipe | The pool's few players, recycled between pages |
+| Endless feed | `pool.addToPlaylist(...)` as each new page of reels arrives |
+| One analytics view per reel watched | `setAnalyticsConfig(...)` on the pool; pre-rendered pages never count |
+
+The app code only binds `pool.playerAt(page)` to each page and calls `pool.setCurrentIndex(page)`
+when the pager settles. See
+[`ReelsActivity`](app/src/main/java/io/fastpix/app/demo/ReelsActivity.kt) and
+[`ReelOverlay`](app/src/main/java/io/fastpix/app/demo/ReelOverlay.kt).
+
+#### Shop reels + series (Flipkart-style)
+
+A shopping home screen: a row of series across the top and a grid of shoppable reels below it that
+keeps loading as the user scrolls.
+
+- **Tap a reel in the grid**: the reel feed above opens on that reel, and the user can swipe on
+  through the whole endless feed.
+- **Tap a series**: the episode plays on top with every episode listed below it. Episodes play on
+  in order, and tapping one jumps to it. This is one `FastPixPlayer` holding the series as a
+  playlist (`setPlaylist`), with `PrerenderConfig(count = 1)` so moving to the next episode shows
+  its first frame at once, and `PreloadConfig(count = 2, behind = 1)`.
+- **Nothing plays on the home screen, but it makes the next screen fast**: `FastPixPreCacher`
+  warms the first seconds of the reels and series on screen once scrolling settles, so whatever the
+  user taps starts from disk. It warms with the players' own cache and ABR settings, so it fetches
+  the rendition they will start on, and it stops while another screen is open.
+
+See [`ShopHomeActivity`](app/src/main/java/io/fastpix/app/demo/ShopHomeActivity.kt) and
+[`EpisodePlayerActivity`](app/src/main/java/io/fastpix/app/demo/EpisodePlayerActivity.kt).
+
+#### Notes
+
+- Both demos build every item with `PlaylistItem.fastPix(playbackId)`, so the pre-cacher and the
+  players share one disk cache keyed by asset.
+- Analytics is off unless you set your FastPix Data workspace in `local.properties`:
+  `fastpix.analyticsWorkspace=your-workspace-id`.
+- The content is the sample's public test videos, repeated, served by an in-app stand-in for a
+  backend ([`DemoCatalog`](app/src/main/java/io/fastpix/app/demo/DemoCatalog.kt)). Captions, counts
+  and profile pictures (from `i.pravatar.cc`) are placeholder data. Likes and follows last only while
+  the screen is open, and comment, share and more are UI only.
+
+---
+
+## Which FastPix SDK for Android
+
+This repository is the playback SDK. For the other parts of a FastPix Android app, use the matching SDK:
+
+| What you want to do | FastPix SDK |
+| --- | --- |
+| Play FastPix HLS video in an Android app | **io.fastpix.player:android** (this repository) |
+| Upload video from an Android app | [FastPix/android-uploads-sdk](https://github.com/FastPix/android-uploads-sdk) - chunked, resumable uploads |
+| Core Android video analytics (powers the player's QoE data) | [FastPix/android-core-data-sdk](https://github.com/FastPix/android-core-data-sdk) |
+
+## FAQ
+
+**How do I add an HLS video player to an Android app?**
+Add the SDK with Gradle, put a `<io.fastpix.media3.PlayerView>` in your layout, build a `FastPixPlayer`, and call `setFastPixMediaItem { playbackId = "..." }` with a FastPix playback ID. See [Install the SDK](#installation) and [Quick Start](#quick-start).
+
+**How do I build a TikTok / Reels-style video feed on Android?**
+Use `FastPixPlayerPool` with a vertical `ViewPager2` or Compose `VerticalPager`, plus `PreloadConfig` and `PrerenderConfig`. The pool shares a small set of ExoPlayer decoders across pages and pre-renders neighbours to the first frame, so swipes land on video instead of a black screen. See [Recipes: Playlists & Feeds](#recipes-playlists--feeds) and the [demo apps](#demo-apps).
+
+**How do I preload the next videos in an ExoPlayer feed?**
+Set `PreloadConfig(count = N)` on the player or pool to buffer the next (and previous) entries, and turn on `CacheConfig.enabled()` so re-watches and scroll-backs play from disk. `FastPixPreCacher` warms items before a player even exists. See [Fast Start, Preloading, Caching & Pre-rendering](#fast-start-preloading-caching--pre-rendering).
+
+**Is this a replacement for ExoPlayer / Media3?**
+No. It is built on AndroidX Media3 (ExoPlayer). It adds a thin, FastPix-aware API plus the feed, preloading, caching, pre-rendering, DRM and analytics layers on top; you can still reach the underlying `ExoPlayer` with `getPlayer()`.
+
+**Does it support Widevine DRM?**
+Yes. Provide a `playbackToken` and `DrmConfig()` for Widevine-protected FastPix HLS streams. See [DRM (Widevine) Playback](#drm-widevine-playback).
+
+**Does it work with live streaming?**
+Yes. Set `streamType = StreamType.live` on the media item. See [FastPix Media Items](#fastpix-media-items).
+
+**Does it track video analytics and quality of experience (QoE)?**
+Yes. Add `AnalyticsConfig` (FastPix Data SDK) to the player or pool and each video the viewer watches is reported as one view. See [Analytics](#analytics-fastpix-data-core-sdk).
+
+**What Android versions are supported?**
+Android 7.0 (API 24) and higher, Kotlin 1.8+, AndroidX Media3 1.9.0.
+
+## Documentation
+
+ [See the full FastPix Android Player documentation](https://fastpix.com/docs/android-player) for a detailed guide to the SDK.
+

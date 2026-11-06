@@ -30,6 +30,8 @@ android {
         tokenField("PRIVATE_TEST_TOKEN", "fastpix.privateTestToken")
         tokenField("PRIVATE_TEST_TOKEN_2", "fastpix.privateTestToken2")
         tokenField("DRM_TEST_TOKEN", "fastpix.drmTestToken")
+        // FastPix Data workspace for the reel and shop demos; analytics is off when empty.
+        tokenField("ANALYTICS_WORKSPACE", "fastpix.analyticsWorkspace")
     }
 
     buildTypes {

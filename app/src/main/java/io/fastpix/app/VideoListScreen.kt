@@ -1,5 +1,7 @@
 package io.fastpix.app
 
+import io.fastpix.app.demo.ReelsActivity
+import io.fastpix.app.demo.ShopHomeActivity
 import io.fastpix.app.feed.ViewPagerFeedActivity
 import android.content.Intent
 import android.os.Bundle
@@ -100,6 +102,14 @@ class VideoListScreen : AppCompatActivity() {
 
         binding.btnViewpagerFeed.setOnClickListener {
             startActivity(ViewPagerFeedActivity.newIntent(this))
+        }
+
+        binding.btnDemoReels.setOnClickListener {
+            startActivity(ReelsActivity.newIntent(this))
+        }
+
+        binding.btnDemoShop.setOnClickListener {
+            startActivity(Intent(this, ShopHomeActivity::class.java))
         }
 
         binding.btnComposePlayer.setOnClickListener {
